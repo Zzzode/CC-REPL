@@ -4,7 +4,6 @@
 # decreases shrink this file in the same split commit. c1 = must reach <30
 # when that module's batch merges; c2-done = <=100 cap now enforced.
 cc.utils.json 131
-cc.state.selectors 118
 cc.utils.swarm_backends 116
 cc.tools.mcp 76
 cc.hooks.voice_hooks 75
@@ -58,5 +57,6 @@ cc.state.store 8
 cc.ui.visual.markdown 7 c2-done
 cc.tools.agent.utils 6 c1 c2-done
 cc.ui.foundation.design_tokens 6
+cc.state.selectors 5 c2-done
 cc.tools.runtime_registry 5 c1 c2-done
 cc.ui.screens.repl_screen 0 c1 c2-done

@@ -2,6 +2,18 @@
 /// @brief Memoized selectors for derived state in the Loom REPL.
 /// Provides efficient cached computations over AppState, avoiding
 /// redundant recalculations when the underlying data hasn't changed.
+///
+/// RFC 0001 Phase C batch 10: every free-function body lives in six module
+/// implementation units — selectors_core.cpp (basic + settings selectors),
+/// selectors_bridge.cpp (REPL bridge state + the connectivity composites),
+/// selectors_ui_tasks.cpp (UI state + tasks/agents + the task-view/multi-agent
+/// composites), selectors_companion_mcp.cpp (companion buddy + MCP/plugins),
+/// selectors_conversation.cpp (message/conversation + is_ui_busy; the only
+/// impl unit that imports cc.types.types for cc::core::TokenUsage), and
+/// selectors_features.cpp (prompt suggestion, speculation, skill improvement,
+/// inbox, worker sandbox).  This primary keeps the MemoizedSelector class
+/// template and the five create_*_based_selector factory templates inline
+/// (they are templates) and only declarations for the 113 free functions.
 module;
 
 #include <cstdint>
@@ -85,688 +97,395 @@ public:
 // ============================================================
 
 /// Check if verbose mode is enabled
-[[nodiscard]] inline bool is_verbose(const AppState& state) noexcept {
-    return state.verbose;
-}
+[[nodiscard]] bool is_verbose(const AppState& state) noexcept;
 
 /// Check if compact mode is enabled
-[[nodiscard]] inline bool is_compact_mode(const AppState& state) noexcept {
-    return state.compact_mode;
-}
+[[nodiscard]] bool is_compact_mode(const AppState& state) noexcept;
 
 /// Check if fast mode is enabled
-[[nodiscard]] inline bool is_fast_mode(const AppState& state) noexcept {
-    return state.fast_mode;
-}
+[[nodiscard]] bool is_fast_mode(const AppState& state) noexcept;
 
 /// Check if thinking is enabled
-[[nodiscard]] inline bool is_thinking_enabled(const AppState& state) noexcept {
-    return state.thinking_enabled;
-}
+[[nodiscard]] bool is_thinking_enabled(const AppState& state) noexcept;
 
 /// Check if prompt suggestions are enabled
-[[nodiscard]] inline bool is_prompt_suggestion_enabled(const AppState& state) noexcept {
-    return state.prompt_suggestion_enabled;
-}
+[[nodiscard]] bool is_prompt_suggestion_enabled(const AppState& state) noexcept;
 
 /// Check if Kairos is enabled
-[[nodiscard]] inline bool is_kairos_enabled(const AppState& state) noexcept {
-    return state.kairos_enabled;
-}
+[[nodiscard]] bool is_kairos_enabled(const AppState& state) noexcept;
 
 /// Check if Ultraplan mode is active
-[[nodiscard]] inline bool is_ultraplan_mode(const AppState& state) noexcept {
-    return state.is_ultraplan_mode;
-}
+[[nodiscard]] bool is_ultraplan_mode(const AppState& state) noexcept;
 
 /// Check if Ultraplan is launching
-[[nodiscard]] inline bool is_ultraplan_launching(const AppState& state) noexcept {
-    return state.ultraplan_launching;
-}
+[[nodiscard]] bool is_ultraplan_launching(const AppState& state) noexcept;
 
 /// Get the main loop model
-[[nodiscard]] inline std::optional<std::string_view> get_main_loop_model(const AppState& state) noexcept {
-    if (state.main_loop_model) {
-        return *state.main_loop_model;
-    }
-    return std::nullopt;
-}
+[[nodiscard]] std::optional<std::string_view> get_main_loop_model(const AppState& state) noexcept;
 
 /// Get the current agent name
-[[nodiscard]] inline std::optional<std::string_view> get_agent(const AppState& state) noexcept {
-    if (state.agent) {
-        return *state.agent;
-    }
-    return std::nullopt;
-}
+[[nodiscard]] std::optional<std::string_view> get_agent(const AppState& state) noexcept;
 
 /// Get the current expanded view
-[[nodiscard]] inline ExpandedView get_expanded_view(const AppState& state) noexcept {
-    return state.expanded_view;
-}
+[[nodiscard]] ExpandedView get_expanded_view(const AppState& state) noexcept;
 
 /// Check if tasks view is expanded
-[[nodiscard]] inline bool is_tasks_view_expanded(const AppState& state) noexcept {
-    return state.expanded_view == ExpandedView::Tasks;
-}
+[[nodiscard]] bool is_tasks_view_expanded(const AppState& state) noexcept;
 
 /// Check if teammates view is expanded
-[[nodiscard]] inline bool is_teammates_view_expanded(const AppState& state) noexcept {
-    return state.expanded_view == ExpandedView::Teammates;
-}
+[[nodiscard]] bool is_teammates_view_expanded(const AppState& state) noexcept;
 
 /// Get the current remote connection status
-[[nodiscard]] inline RemoteConnectionStatus get_remote_connection_status(const AppState& state) noexcept {
-    return state.remote_connection_status;
-}
+[[nodiscard]] RemoteConnectionStatus get_remote_connection_status(const AppState& state) noexcept;
 
 /// Check if connected to remote
-[[nodiscard]] inline bool is_remote_connected(const AppState& state) noexcept {
-    return state.remote_connection_status == RemoteConnectionStatus::Connected;
-}
+[[nodiscard]] bool is_remote_connected(const AppState& state) noexcept;
 
 /// Check if reconnecting to remote
-[[nodiscard]] inline bool is_remote_reconnecting(const AppState& state) noexcept {
-    return state.remote_connection_status == RemoteConnectionStatus::Reconnecting;
-}
+[[nodiscard]] bool is_remote_reconnecting(const AppState& state) noexcept;
 
 /// Get the current permission mode
-[[nodiscard]] inline PermissionMode get_permission_mode(const AppState& state) noexcept {
-    return state.tool_permission_context.mode;
-}
+[[nodiscard]] PermissionMode get_permission_mode(const AppState& state) noexcept;
 
 /// Get the status line text
-[[nodiscard]] inline std::optional<std::string_view> get_status_line_text(const AppState& state) noexcept {
-    if (state.status_line_text) {
-        return *state.status_line_text;
-    }
-    return std::nullopt;
-}
+[[nodiscard]] std::optional<std::string_view> get_status_line_text(const AppState& state) noexcept;
 
 // ============================================================
 // Settings Selectors
 // ============================================================
 
 /// Get the configured model from settings
-[[nodiscard]] inline std::string_view get_settings_model(const AppState& state) noexcept {
-    return state.settings.model;
-}
+[[nodiscard]] std::string_view get_settings_model(const AppState& state) noexcept;
 
 /// Get the configured theme from settings
-[[nodiscard]] inline std::string_view get_settings_theme(const AppState& state) noexcept {
-    return state.settings.theme;
-}
+[[nodiscard]] std::string_view get_settings_theme(const AppState& state) noexcept;
 
 /// Check if status line is enabled in settings
-[[nodiscard]] inline bool is_status_line_enabled(const AppState& state) noexcept {
-    return state.settings.status_line.enabled;
-}
+[[nodiscard]] bool is_status_line_enabled(const AppState& state) noexcept;
 
 /// Get the status line command from settings
-[[nodiscard]] inline std::string_view get_status_line_command(const AppState& state) noexcept {
-    return state.settings.status_line.command;
-}
+[[nodiscard]] std::string_view get_status_line_command(const AppState& state) noexcept;
 
 /// Get the status line padding from settings
-[[nodiscard]] inline int get_status_line_padding(const AppState& state) noexcept {
-    return state.settings.status_line.padding;
-}
+[[nodiscard]] int get_status_line_padding(const AppState& state) noexcept;
 
 /// Get the output style from settings
-[[nodiscard]] inline std::string_view get_output_style(const AppState& state) noexcept {
-    return state.settings.output_style;
-}
+[[nodiscard]] std::string_view get_output_style(const AppState& state) noexcept;
 
 /// Check if all hooks are disabled in settings
-[[nodiscard]] inline bool are_all_hooks_disabled(const AppState& state) noexcept {
-    return state.settings.disable_all_hooks;
-}
+[[nodiscard]] bool are_all_hooks_disabled(const AppState& state) noexcept;
 
 /// Get the number of notifications
-[[nodiscard]] inline size_t get_notification_count(const AppState& state) noexcept {
-    return state.notifications.size();
-}
+[[nodiscard]] size_t get_notification_count(const AppState& state) noexcept;
 
 /// Check if there are any notifications
-[[nodiscard]] inline bool has_notifications(const AppState& state) noexcept {
-    return !state.notifications.empty();
-}
+[[nodiscard]] bool has_notifications(const AppState& state) noexcept;
 
 /// Get the active overlays
-[[nodiscard]] inline const std::set<std::string>& get_active_overlays(const AppState& state) noexcept {
-    return state.active_overlays;
-}
+[[nodiscard]] const std::set<std::string>& get_active_overlays(const AppState& state) noexcept;
 
 /// Check if there are any active overlays
-[[nodiscard]] inline bool has_active_overlays(const AppState& state) noexcept {
-    return !state.active_overlays.empty();
-}
+[[nodiscard]] bool has_active_overlays(const AppState& state) noexcept;
 
 /// Check if a specific overlay is active
-[[nodiscard]] inline bool is_overlay_active(const AppState& state, std::string_view overlay_name) noexcept {
-    return state.active_overlays.contains(std::string(overlay_name));
-}
+[[nodiscard]] bool is_overlay_active(const AppState& state, std::string_view overlay_name) noexcept;
 
 /// Get the auth version
-[[nodiscard]] inline uint32_t get_auth_version(const AppState& state) noexcept {
-    return state.auth_version;
-}
+[[nodiscard]] uint32_t get_auth_version(const AppState& state) noexcept;
 
 /// Get the effort value
-[[nodiscard]] inline std::optional<std::string_view> get_effort_value(const AppState& state) noexcept {
-    if (state.effort_value) {
-        return *state.effort_value;
-    }
-    return std::nullopt;
-}
+[[nodiscard]] std::optional<std::string_view> get_effort_value(const AppState& state) noexcept;
 
 /// Get the advisor model
-[[nodiscard]] inline std::optional<std::string_view> get_advisor_model(const AppState& state) noexcept {
-    if (state.advisor_model) {
-        return *state.advisor_model;
-    }
-    return std::nullopt;
-}
+[[nodiscard]] std::optional<std::string_view> get_advisor_model(const AppState& state) noexcept;
 
 /// Get the Ultraplan session URL
-[[nodiscard]] inline std::optional<std::string_view> get_ultraplan_session_url(const AppState& state) noexcept {
-    if (state.ultraplan_session_url) {
-        return *state.ultraplan_session_url;
-    }
-    return std::nullopt;
-}
+[[nodiscard]] std::optional<std::string_view> get_ultraplan_session_url(const AppState& state) noexcept;
 
 /// Get the speculation session time saved
-[[nodiscard]] inline int64_t get_speculation_session_time_saved_ms(const AppState& state) noexcept {
-    return state.speculation_session_time_saved_ms;
-}
+[[nodiscard]] int64_t get_speculation_session_time_saved_ms(const AppState& state) noexcept;
 
 // ============================================================
 // Bridge State Selectors
 // ============================================================
 
 /// Check if the REPL bridge is enabled
-[[nodiscard]] inline bool is_repl_bridge_enabled(const AppState& state) noexcept {
-    return state.repl_bridge_enabled;
-}
+[[nodiscard]] bool is_repl_bridge_enabled(const AppState& state) noexcept;
 
 /// Check if the REPL bridge is connected
-[[nodiscard]] inline bool is_repl_bridge_connected(const AppState& state) noexcept {
-    return state.repl_bridge_connected;
-}
+[[nodiscard]] bool is_repl_bridge_connected(const AppState& state) noexcept;
 
 /// Check if the REPL bridge session is active
-[[nodiscard]] inline bool is_repl_bridge_session_active(const AppState& state) noexcept {
-    return state.repl_bridge_session_active;
-}
+[[nodiscard]] bool is_repl_bridge_session_active(const AppState& state) noexcept;
 
 /// Check if the REPL bridge is reconnecting
-[[nodiscard]] inline bool is_repl_bridge_reconnecting(const AppState& state) noexcept {
-    return state.repl_bridge_reconnecting;
-}
+[[nodiscard]] bool is_repl_bridge_reconnecting(const AppState& state) noexcept;
 
 /// Check if the REPL bridge is in outbound-only mode
-[[nodiscard]] inline bool is_repl_bridge_outbound_only(const AppState& state) noexcept {
-    return state.repl_bridge_outbound_only;
-}
+[[nodiscard]] bool is_repl_bridge_outbound_only(const AppState& state) noexcept;
 
 /// Check if the REPL bridge is explicit
-[[nodiscard]] inline bool is_repl_bridge_explicit(const AppState& state) noexcept {
-    return state.repl_bridge_explicit;
-}
+[[nodiscard]] bool is_repl_bridge_explicit(const AppState& state) noexcept;
 
 /// Check if we should show the remote callout
-[[nodiscard]] inline bool should_show_remote_callout(const AppState& state) noexcept {
-    return state.show_remote_callout;
-}
+[[nodiscard]] bool should_show_remote_callout(const AppState& state) noexcept;
 
 /// Get the REPL bridge connect URL
-[[nodiscard]] inline std::optional<std::string_view> get_repl_bridge_connect_url(const AppState& state) noexcept {
-    if (state.repl_bridge_connect_url) {
-        return *state.repl_bridge_connect_url;
-    }
-    return std::nullopt;
-}
+[[nodiscard]] std::optional<std::string_view> get_repl_bridge_connect_url(const AppState& state) noexcept;
 
 /// Get the REPL bridge session URL
-[[nodiscard]] inline std::optional<std::string_view> get_repl_bridge_session_url(const AppState& state) noexcept {
-    if (state.repl_bridge_session_url) {
-        return *state.repl_bridge_session_url;
-    }
-    return std::nullopt;
-}
+[[nodiscard]] std::optional<std::string_view> get_repl_bridge_session_url(const AppState& state) noexcept;
 
 /// Get the REPL bridge error
-[[nodiscard]] inline std::optional<std::string_view> get_repl_bridge_error(const AppState& state) noexcept {
-    if (state.repl_bridge_error) {
-        return *state.repl_bridge_error;
-    }
-    return std::nullopt;
-}
+[[nodiscard]] std::optional<std::string_view> get_repl_bridge_error(const AppState& state) noexcept;
 
 // ============================================================
 // UI State Selectors
 // ============================================================
 
 /// Get the selected IP agent index
-[[nodiscard]] inline int32_t get_selected_ip_agent_index(const AppState& state) noexcept {
-    return state.selected_ip_agent_index;
-}
+[[nodiscard]] int32_t get_selected_ip_agent_index(const AppState& state) noexcept;
 
 /// Get the coordinator task index
-[[nodiscard]] inline int32_t get_coordinator_task_index(const AppState& state) noexcept {
-    return state.coordinator_task_index;
-}
+[[nodiscard]] int32_t get_coordinator_task_index(const AppState& state) noexcept;
 
 /// Get the view selection mode
-[[nodiscard]] inline std::string_view get_view_selection_mode(const AppState& state) noexcept {
-    return state.view_selection_mode;
-}
+[[nodiscard]] std::string_view get_view_selection_mode(const AppState& state) noexcept;
 
 /// Check if we're in brief-only mode
-[[nodiscard]] inline bool is_brief_only(const AppState& state) noexcept {
-    return state.is_brief_only;
-}
+[[nodiscard]] bool is_brief_only(const AppState& state) noexcept;
 
 /// Check if we should show teammate message previews
-[[nodiscard]] inline bool should_show_teammate_message_preview(const AppState& state) noexcept {
-    return state.show_teammate_message_preview;
-}
+[[nodiscard]] bool should_show_teammate_message_preview(const AppState& state) noexcept;
 
 /// Get the footer selection
-[[nodiscard]] inline std::optional<FooterItem> get_footer_selection(const AppState& state) noexcept {
-    return state.footer_selection;
-}
+[[nodiscard]] std::optional<FooterItem> get_footer_selection(const AppState& state) noexcept;
 
 /// Check if a specific footer item is selected
-[[nodiscard]] inline bool is_footer_item_selected(const AppState& state, FooterItem item) noexcept {
-    return state.footer_selection == item;
-}
+[[nodiscard]] bool is_footer_item_selected(const AppState& state, FooterItem item) noexcept;
 
 /// Get the spinner tip
-[[nodiscard]] inline std::optional<std::string_view> get_spinner_tip(const AppState& state) noexcept {
-    if (state.spinner_tip) {
-        return *state.spinner_tip;
-    }
-    return std::nullopt;
-}
+[[nodiscard]] std::optional<std::string_view> get_spinner_tip(const AppState& state) noexcept;
 
 // ============================================================
 // Tasks & Agents Selectors
 // ============================================================
 
 /// Get the number of tasks
-[[nodiscard]] inline size_t get_task_count(const AppState& state) noexcept {
-    return state.tasks.size();
-}
+[[nodiscard]] size_t get_task_count(const AppState& state) noexcept;
 
 /// Check if there are any tasks
-[[nodiscard]] inline bool has_tasks(const AppState& state) noexcept {
-    return !state.tasks.empty();
-}
+[[nodiscard]] bool has_tasks(const AppState& state) noexcept;
 
 /// Get the foregrounded task ID
-[[nodiscard]] inline std::optional<std::string_view> get_foregrounded_task_id(const AppState& state) noexcept {
-    if (state.foregrounded_task_id) {
-        return *state.foregrounded_task_id;
-    }
-    return std::nullopt;
-}
+[[nodiscard]] std::optional<std::string_view> get_foregrounded_task_id(const AppState& state) noexcept;
 
 /// Check if a specific task is foregrounded
-[[nodiscard]] inline bool is_task_foregrounded(const AppState& state, std::string_view task_id) noexcept {
-    return state.foregrounded_task_id == task_id;
-}
+[[nodiscard]] bool is_task_foregrounded(const AppState& state, std::string_view task_id) noexcept;
 
 /// Get the viewing agent task ID
-[[nodiscard]] inline std::optional<std::string_view> get_viewing_agent_task_id(const AppState& state) noexcept {
-    if (state.viewing_agent_task_id) {
-        return *state.viewing_agent_task_id;
-    }
-    return std::nullopt;
-}
+[[nodiscard]] std::optional<std::string_view> get_viewing_agent_task_id(const AppState& state) noexcept;
 
 /// Check if we're viewing a specific agent's task
-[[nodiscard]] inline bool is_viewing_agent_task(const AppState& state, std::string_view task_id) noexcept {
-    return state.viewing_agent_task_id == task_id;
-}
+[[nodiscard]] bool is_viewing_agent_task(const AppState& state, std::string_view task_id) noexcept;
 
 /// Get the number of agents in the name registry
-[[nodiscard]] inline size_t get_agent_name_registry_count(const AppState& state) noexcept {
-    return state.agent_name_registry.size();
-}
+[[nodiscard]] size_t get_agent_name_registry_count(const AppState& state) noexcept;
 
 /// Check if an agent name is registered
-[[nodiscard]] inline bool is_agent_name_registered(const AppState& state, std::string_view name) noexcept {
-    return state.agent_name_registry.contains(std::string(name));
-}
+[[nodiscard]] bool is_agent_name_registered(const AppState& state, std::string_view name) noexcept;
 
 /// Get an agent ID by name
-[[nodiscard]] inline std::optional<std::string_view> get_agent_id_by_name(const AppState& state, std::string_view name) noexcept {
-    auto it = state.agent_name_registry.find(std::string(name));
-    if (it != state.agent_name_registry.end()) {
-        return it->second;
-    }
-    return std::nullopt;
-}
+[[nodiscard]] std::optional<std::string_view> get_agent_id_by_name(const AppState& state, std::string_view name) noexcept;
 
 // ============================================================
 // Companion (Buddy) Selectors
 // ============================================================
 
 /// Get the companion reaction
-[[nodiscard]] inline std::optional<std::string_view> get_companion_reaction(const AppState& state) noexcept {
-    if (state.companion_reaction) {
-        return *state.companion_reaction;
-    }
-    return std::nullopt;
-}
+[[nodiscard]] std::optional<std::string_view> get_companion_reaction(const AppState& state) noexcept;
 
 /// Get the companion pet time
-[[nodiscard]] inline std::optional<std::chrono::system_clock::time_point> get_companion_pet_time(const AppState& state) noexcept {
-    return state.companion_pet_at;
-}
+[[nodiscard]] std::optional<std::chrono::system_clock::time_point> get_companion_pet_time(const AppState& state) noexcept;
 
 /// Check if companion was petted recently (within last 5 seconds)
-[[nodiscard]] inline bool was_companion_petted_recently(const AppState& state) noexcept {
-    if (!state.companion_pet_at) {
-        return false;
-    }
-    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-        std::chrono::system_clock::now() - *state.companion_pet_at
-    );
-    return elapsed.count() < 5;
-}
+[[nodiscard]] bool was_companion_petted_recently(const AppState& state) noexcept;
 
 // ============================================================
 // MCP & Plugins Selectors
 // ============================================================
 
 /// Get the number of MCP clients
-[[nodiscard]] inline size_t get_mcp_client_count(const AppState& state) noexcept {
-    return state.mcp.clients.size();
-}
+[[nodiscard]] size_t get_mcp_client_count(const AppState& state) noexcept;
 
 /// Check if there are any MCP clients
-[[nodiscard]] inline bool has_mcp_clients(const AppState& state) noexcept {
-    return !state.mcp.clients.empty();
-}
+[[nodiscard]] bool has_mcp_clients(const AppState& state) noexcept;
 
 /// Get the number of MCP tools
-[[nodiscard]] inline size_t get_mcp_tool_count(const AppState& state) noexcept {
-    return state.mcp.tools.size();
-}
+[[nodiscard]] size_t get_mcp_tool_count(const AppState& state) noexcept;
 
 /// Check if there are any MCP tools
-[[nodiscard]] inline bool has_mcp_tools(const AppState& state) noexcept {
-    return !state.mcp.tools.empty();
-}
+[[nodiscard]] bool has_mcp_tools(const AppState& state) noexcept;
 
 /// Get the number of MCP commands
-[[nodiscard]] inline size_t get_mcp_command_count(const AppState& state) noexcept {
-    return state.mcp.commands.size();
-}
+[[nodiscard]] size_t get_mcp_command_count(const AppState& state) noexcept;
 
 /// Check if there are any MCP commands
-[[nodiscard]] inline bool has_mcp_commands(const AppState& state) noexcept {
-    return !state.mcp.commands.empty();
-}
+[[nodiscard]] bool has_mcp_commands(const AppState& state) noexcept;
 
 /// Get the MCP plugin reconnect key
-[[nodiscard]] inline uint32_t get_mcp_plugin_reconnect_key(const AppState& state) noexcept {
-    return state.mcp.plugin_reconnect_key;
-}
+[[nodiscard]] uint32_t get_mcp_plugin_reconnect_key(const AppState& state) noexcept;
 
 /// Get the number of enabled plugins
-[[nodiscard]] inline size_t get_enabled_plugin_count(const AppState& state) noexcept {
-    return state.plugins.enabled.size();
-}
+[[nodiscard]] size_t get_enabled_plugin_count(const AppState& state) noexcept;
 
 /// Get the number of disabled plugins
-[[nodiscard]] inline size_t get_disabled_plugin_count(const AppState& state) noexcept {
-    return state.plugins.disabled.size();
-}
+[[nodiscard]] size_t get_disabled_plugin_count(const AppState& state) noexcept;
 
 /// Get the total number of plugins
-[[nodiscard]] inline size_t get_total_plugin_count(const AppState& state) noexcept {
-    return state.plugins.enabled.size() + state.plugins.disabled.size();
-}
+[[nodiscard]] size_t get_total_plugin_count(const AppState& state) noexcept;
 
 /// Check if there are any plugin errors
-[[nodiscard]] inline bool has_plugin_errors(const AppState& state) noexcept {
-    return !state.plugins.errors.empty();
-}
+[[nodiscard]] bool has_plugin_errors(const AppState& state) noexcept;
 
 /// Get the number of plugin errors
-[[nodiscard]] inline size_t get_plugin_error_count(const AppState& state) noexcept {
-    return state.plugins.errors.size();
-}
+[[nodiscard]] size_t get_plugin_error_count(const AppState& state) noexcept;
 
 /// Check if plugins need refresh
-[[nodiscard]] inline bool do_plugins_need_refresh(const AppState& state) noexcept {
-    return state.plugins.needs_refresh;
-}
+[[nodiscard]] bool do_plugins_need_refresh(const AppState& state) noexcept;
 
 // ============================================================
 // Message & Conversation Selectors
 // ============================================================
 
 /// Get the number of messages
-[[nodiscard]] inline size_t get_message_count(const AppState& state) noexcept {
-    return state.messages.size();
-}
+[[nodiscard]] size_t get_message_count(const AppState& state) noexcept;
 
 /// Check if there are any messages
-[[nodiscard]] inline bool has_messages(const AppState& state) noexcept {
-    return !state.messages.empty();
-}
+[[nodiscard]] bool has_messages(const AppState& state) noexcept;
 
 /// Check if loading
-[[nodiscard]] inline bool is_loading(const AppState& state) noexcept {
-    return state.is_loading;
-}
+[[nodiscard]] bool is_loading(const AppState& state) noexcept;
 
 /// Check if streaming
-[[nodiscard]] inline bool is_streaming(const AppState& state) noexcept {
-    return state.is_streaming;
-}
+[[nodiscard]] bool is_streaming(const AppState& state) noexcept;
 
 /// Get the error message
-[[nodiscard]] inline std::optional<std::string_view> get_error_message(const AppState& state) noexcept {
-    if (state.error_message) {
-        return *state.error_message;
-    }
-    return std::nullopt;
-}
+[[nodiscard]] std::optional<std::string_view> get_error_message(const AppState& state) noexcept;
 
 /// Check if there's an error
-[[nodiscard]] inline bool has_error(const AppState& state) noexcept {
-    return state.error_message.has_value();
-}
+[[nodiscard]] bool has_error(const AppState& state) noexcept;
 
 /// Get the total token usage
-[[nodiscard]] inline const cc::core::TokenUsage& get_total_usage(const AppState& state) noexcept {
-    return state.total_usage;
-}
+[[nodiscard]] const cc::core::TokenUsage& get_total_usage(const AppState& state) noexcept;
 
 /// Get the total cost in USD
-[[nodiscard]] inline double get_total_cost_usd(const AppState& state) noexcept {
-    return state.total_cost_usd;
-}
+[[nodiscard]] double get_total_cost_usd(const AppState& state) noexcept;
 
 /// Get the working directory
-[[nodiscard]] inline std::string_view get_working_directory(const AppState& state) noexcept {
-    return state.working_directory;
-}
+[[nodiscard]] std::string_view get_working_directory(const AppState& state) noexcept;
 
 /// Get allowed directories (paths added via /add-dir)
-[[nodiscard]] inline const std::vector<std::string>& get_allowed_directories(const AppState& state) noexcept {
-    return state.allowed_directories;
-}
+[[nodiscard]] const std::vector<std::string>& get_allowed_directories(const AppState& state) noexcept;
 
 // ============================================================
 // Prompt Suggestion Selectors
 // ============================================================
 
 /// Get the prompt suggestion text
-[[nodiscard]] inline std::optional<std::string_view> get_prompt_suggestion_text(const AppState& state) noexcept {
-    if (state.prompt_suggestion.text) {
-        return *state.prompt_suggestion.text;
-    }
-    return std::nullopt;
-}
+[[nodiscard]] std::optional<std::string_view> get_prompt_suggestion_text(const AppState& state) noexcept;
 
 /// Get the prompt suggestion prompt ID
-[[nodiscard]] inline std::optional<std::string_view> get_prompt_suggestion_prompt_id(const AppState& state) noexcept {
-    if (state.prompt_suggestion.prompt_id) {
-        return *state.prompt_suggestion.prompt_id;
-    }
-    return std::nullopt;
-}
+[[nodiscard]] std::optional<std::string_view> get_prompt_suggestion_prompt_id(const AppState& state) noexcept;
 
 /// Check if there's an active prompt suggestion
-[[nodiscard]] inline bool has_prompt_suggestion(const AppState& state) noexcept {
-    return state.prompt_suggestion.text.has_value();
-}
+[[nodiscard]] bool has_prompt_suggestion(const AppState& state) noexcept;
 
 // ============================================================
 // Speculation Selectors
 // ============================================================
 
 /// Get the speculation status
-[[nodiscard]] inline SpeculationStatus get_speculation_status(const AppState& state) noexcept {
-    return state.speculation.status;
-}
+[[nodiscard]] SpeculationStatus get_speculation_status(const AppState& state) noexcept;
 
 /// Check if speculation is active
-[[nodiscard]] inline bool is_speculation_active(const AppState& state) noexcept {
-    return state.speculation.status == SpeculationStatus::Active;
-}
+[[nodiscard]] bool is_speculation_active(const AppState& state) noexcept;
 
 /// Check if speculation is idle
-[[nodiscard]] inline bool is_speculation_idle(const AppState& state) noexcept {
-    return state.speculation.status == SpeculationStatus::Idle;
-}
+[[nodiscard]] bool is_speculation_idle(const AppState& state) noexcept;
 
 /// Get the speculation ID
-[[nodiscard]] inline std::string_view get_speculation_id(const AppState& state) noexcept {
-    return state.speculation.id;
-}
+[[nodiscard]] std::string_view get_speculation_id(const AppState& state) noexcept;
 
 /// Get the speculation message count
-[[nodiscard]] inline size_t get_speculation_message_count(const AppState& state) noexcept {
-    return state.speculation.messages.size();
-}
+[[nodiscard]] size_t get_speculation_message_count(const AppState& state) noexcept;
 
 /// Get the speculation suggestion length
-[[nodiscard]] inline size_t get_speculation_suggestion_length(const AppState& state) noexcept {
-    return state.speculation.suggestion_length;
-}
+[[nodiscard]] size_t get_speculation_suggestion_length(const AppState& state) noexcept;
 
 /// Get the speculation tool use count
-[[nodiscard]] inline size_t get_speculation_tool_use_count(const AppState& state) noexcept {
-    return state.speculation.tool_use_count;
-}
+[[nodiscard]] size_t get_speculation_tool_use_count(const AppState& state) noexcept;
 
 /// Check if speculation is pipelined
-[[nodiscard]] inline bool is_speculation_pipelined(const AppState& state) noexcept {
-    return state.speculation.is_pipelined;
-}
+[[nodiscard]] bool is_speculation_pipelined(const AppState& state) noexcept;
 
 // ============================================================
 // Skill Improvement Selectors
 // ============================================================
 
 /// Check if there's a skill improvement suggestion
-[[nodiscard]] inline bool has_skill_improvement_suggestion(const AppState& state) noexcept {
-    return state.skill_improvement.suggestion.has_value();
-}
+[[nodiscard]] bool has_skill_improvement_suggestion(const AppState& state) noexcept;
 
 /// Get the skill improvement suggestion skill name
-[[nodiscard]] inline std::optional<std::string_view> get_skill_improvement_skill_name(const AppState& state) noexcept {
-    if (state.skill_improvement.suggestion) {
-        return state.skill_improvement.suggestion->skill_name;
-    }
-    return std::nullopt;
-}
+[[nodiscard]] std::optional<std::string_view> get_skill_improvement_skill_name(const AppState& state) noexcept;
 
 // ============================================================
 // Inbox Selectors
 // ============================================================
 
 /// Get the inbox message count
-[[nodiscard]] inline size_t get_inbox_message_count(const AppState& state) noexcept {
-    return state.inbox.messages.size();
-}
+[[nodiscard]] size_t get_inbox_message_count(const AppState& state) noexcept;
 
 /// Check if there are any inbox messages
-[[nodiscard]] inline bool has_inbox_messages(const AppState& state) noexcept {
-    return !state.inbox.messages.empty();
-}
+[[nodiscard]] bool has_inbox_messages(const AppState& state) noexcept;
 
 // ============================================================
 // Worker Sandbox Selectors
 // ============================================================
 
 /// Get the number of pending sandbox permission requests
-[[nodiscard]] inline size_t get_pending_sandbox_permission_count(const AppState& state) noexcept {
-    return state.worker_sandbox_permissions.queue.size();
-}
+[[nodiscard]] size_t get_pending_sandbox_permission_count(const AppState& state) noexcept;
 
 /// Check if there are any pending sandbox permission requests
-[[nodiscard]] inline bool has_pending_sandbox_permissions(const AppState& state) noexcept {
-    return !state.worker_sandbox_permissions.queue.empty();
-}
+[[nodiscard]] bool has_pending_sandbox_permissions(const AppState& state) noexcept;
 
 /// Get the selected sandbox permission index
-[[nodiscard]] inline size_t get_selected_sandbox_permission_index(const AppState& state) noexcept {
-    return state.worker_sandbox_permissions.selected_index;
-}
+[[nodiscard]] size_t get_selected_sandbox_permission_index(const AppState& state) noexcept;
 
 /// Check if there's a pending worker request
-[[nodiscard]] inline bool has_pending_worker_request(const AppState& state) noexcept {
-    return state.pending_worker_request.has_value();
-}
+[[nodiscard]] bool has_pending_worker_request(const AppState& state) noexcept;
 
 /// Check if there's a pending sandbox request
-[[nodiscard]] inline bool has_pending_sandbox_request(const AppState& state) noexcept {
-    return state.pending_sandbox_request.has_value();
-}
+[[nodiscard]] bool has_pending_sandbox_request(const AppState& state) noexcept;
 
 // ============================================================
 // Derived Selectors (Composite)
 // ============================================================
 
 /// Check if the UI is busy (loading, streaming, or has error)
-[[nodiscard]] inline bool is_ui_busy(const AppState& state) noexcept {
-    return state.is_loading || state.is_streaming || state.error_message.has_value();
-}
+[[nodiscard]] bool is_ui_busy(const AppState& state) noexcept;
 
 /// Check if we're connected to anything (remote or bridge)
-[[nodiscard]] inline bool is_connected_to_anything(const AppState& state) noexcept {
-    return is_remote_connected(state) || is_repl_bridge_connected(state);
-}
+[[nodiscard]] bool is_connected_to_anything(const AppState& state) noexcept;
 
 /// Check if any bridge-related status is active
-[[nodiscard]] inline bool has_any_bridge_activity(const AppState& state) noexcept {
-    return state.repl_bridge_enabled || 
-           state.repl_bridge_connected || 
-           state.repl_bridge_session_active ||
-           state.repl_bridge_reconnecting;
-}
+[[nodiscard]] bool has_any_bridge_activity(const AppState& state) noexcept;
 
 /// Check if any task-related view is active
-[[nodiscard]] inline bool is_any_task_view_active(const AppState& state) noexcept {
-    return is_tasks_view_expanded(state) || 
-           state.foregrounded_task_id.has_value() ||
-           state.viewing_agent_task_id.has_value();
-}
+[[nodiscard]] bool is_any_task_view_active(const AppState& state) noexcept;
 
 /// Check if we're in a multi-agent mode
-[[nodiscard]] inline bool is_multi_agent_mode(const AppState& state) noexcept {
-    return state.view_selection_mode == "selecting-agent" || 
-           state.view_selection_mode == "viewing-agent";
-}
+[[nodiscard]] bool is_multi_agent_mode(const AppState& state) noexcept;
 
 // ============================================================
 // Selector Factory Functions
