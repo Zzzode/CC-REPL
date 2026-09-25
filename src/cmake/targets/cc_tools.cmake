@@ -110,6 +110,15 @@ target_sources(cc_tools
         tools/agent_runtime_builtin_impl.cpp
         tools/agent_runtime_sidechain_impl.cpp
         tools/agent_runtime_store_impl.cpp
+        # RFC 0001 Phase C batch 4 — agent_sub_utils module implementation
+        # units (`module cc.tools.agent.utils;`); same PRIVATE-only discipline.
+        tools/agent_sub_utils_json.cpp
+        tools/agent_sub_utils_config.cpp
+        tools/agent_sub_utils_tools_mcp.cpp
+        tools/agent_sub_utils_hooks.cpp
+        tools/agent_sub_utils_teammates.cpp
+        tools/agent_sub_utils_messages.cpp
+        tools/agent_sub_utils_budget.cpp
 )
 target_link_libraries(cc_tools
     PUBLIC

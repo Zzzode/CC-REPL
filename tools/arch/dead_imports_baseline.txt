@@ -93,8 +93,6 @@ cc.tools.agent.run -> cc.tools.agent_memory
 cc.tools.agent.run -> cc.tools.agent_memory_snapshot
 cc.tools.agent.run -> cc.utils.env_utils
 cc.tools.agent.run -> cc.utils.tool_helpers
-cc.tools.agent.utils -> cc.tools.agent_memory_snapshot
-cc.tools.agent.utils -> cc.utils.tool_helpers
 cc.tools.command_semantics -> cc.utils.format
 cc.tools.file_edit -> cc.utils.string_utils
 cc.tools.file_read -> cc.utils.file
