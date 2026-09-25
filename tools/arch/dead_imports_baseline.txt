@@ -39,7 +39,6 @@ cc.hooks.background_task_navigation -> cc.state.app_state
 cc.hooks.prompt_suggestion -> cc.state.app_state
 cc.hooks.turn_diffs -> cc.state.app_state
 cc.keybindings.shortcut_format -> cc.keybindings.defaults
-cc.query.query_engine -> cc.utils.tool_helpers
 cc.services.compact -> cc.utils.string
 cc.services.extract_memories -> cc.utils.file
 cc.skills.bundled.stuck -> cc.skills.load_skills_dir

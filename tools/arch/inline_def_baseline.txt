@@ -6,7 +6,6 @@
 cc.utils.json 131
 cc.state.selectors 118
 cc.utils.swarm_backends 116
-cc.query.query_engine 109
 cc.hooks.remaining_hooks 108
 cc.ui.widgets.text_input 96
 cc.ui.screens.repl_screen 82
@@ -49,6 +48,7 @@ cc.ui.permissions.advanced_prompts 25
 cc.ui.screens.resume_screen 25
 cc.tools.path_validation 24
 cc.ui.screens.doctor_screen 24
+cc.query.query_engine 23 c1 c2-done
 cc.ui.messages.messages_interactions 23
 cc.ui.features.tasks.task_list_view 20
 cc.tools.agent 19
