@@ -72,7 +72,7 @@ target_sources(cc_services
         services/assistant/session_history.cppm
         services/output_styles/output_styles.cppm
         services/mcp/headers_helper.cppm
-        utils/ide_integration.cppm
+        services/ide_integration.cppm
         services/mcp/vscode_sdk_mcp.cppm
         services/mcp/in_process_transport.cppm
         services/mcp/oauth_port.cppm

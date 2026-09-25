@@ -2,77 +2,77 @@
 add_library(cc_utils)
 target_sources(cc_utils
     PUBLIC FILE_SET CXX_MODULES FILES
-        utils/agent_model.cppm
-        utils/activity_manager.cppm
-        utils/agent_id.cppm
-        utils/agent_swarms_enabled.cppm
-        utils/argument_substitution.cppm
+        utils/model/agent_model.cppm
+        utils/diagnostics/activity_manager.cppm
+        utils/agent/agent_id.cppm
+        utils/teams/agent_swarms_enabled.cppm
+        utils/parsing/argument_substitution.cppm
         utils/containers/array_utils.cppm
-        utils/async.cppm
-        utils/abort_controller.cppm
-        utils/permissions/auto_mode_denials.cppm
+        utils/process/async.cppm
+        utils/process/abort_controller.cppm
+        utils/security/auto_mode_denials.cppm
         utils/bash/bash_execution.cppm
         utils/bash/bash_security.cppm
         utils/bash/bash_shell_quoting.cppm
         utils/platform/binary_check.cppm
-        utils/cache.cppm
-        utils/cache_paths.cppm
-        utils/circular_buffer.cppm
-        utils/loom_hints.cppm
-        utils/collapse_read_search.cppm
-        utils/collapse_notifications.cppm
-        utils/commit_attribution.cppm
-        utils/code_indexing.cppm
-        utils/content_array.cppm
-        utils/control_message_compat.cppm
-        utils/config_utils.cppm
-        utils/crypto.cppm
-        utils/cwd.cppm
-        utils/debug.cppm
-        utils/debug_filter.cppm
+        utils/cache/cache.cppm
+        utils/cache/cache_paths.cppm
+        utils/containers/circular_buffer.cppm
+        utils/skills/loom_hints.cppm
+        utils/messages/collapse_read_search.cppm
+        utils/messages/collapse_notifications.cppm
+        utils/git/commit_attribution.cppm
+        utils/search/code_indexing.cppm
+        utils/types/content_array.cppm
+        utils/teams/control_message_compat.cppm
+        utils/config/config_utils.cppm
+        utils/crypto/crypto.cppm
+        utils/fs/cwd.cppm
+        utils/diagnostics/debug.cppm
+        utils/diagnostics/debug_filter.cppm
         utils/git/detect_repository.cppm
-        utils/diff_utils.cppm
-        utils/editor_utils.cppm
-        utils/effort.cppm
+        utils/text/diff_utils.cppm
+        utils/process/editor_utils.cppm
+        utils/model/effort.cppm
         utils/env/env.cppm
         utils/env/env_dynamic.cppm
         utils/env/env_utils.cppm
         utils/env/env_validation.cppm
-        utils/error.cppm
-        utils/errors_utils.cppm
-        utils/exec_file.cppm
-        utils/exec_sync.cppm
-        utils/file.cppm
-        utils/file_edit_utils.cppm
-        utils/file_history.cppm
-        utils/file_persistence.cppm
-        utils/file_read_cache.cppm
+        utils/error/error.cppm
+        utils/error/errors_utils.cppm
+        utils/process/exec_file.cppm
+        utils/process/exec_sync.cppm
+        utils/fs/file.cppm
+        utils/fs/file_edit_utils.cppm
+        utils/fs/file_history.cppm
+        utils/fs/file_persistence.cppm
+        utils/fs/file_read_cache.cppm
         utils/platform/find_executable.cppm
-        utils/fps_tracker.cppm
-        utils/format.cppm
-        utils/frontmatter_parser.cppm
-        utils/fs_operations.cppm
+        utils/diagnostics/fps_tracker.cppm
+        utils/text/format.cppm
+        utils/serdes/frontmatter_parser.cppm
+        utils/fs/fs_operations.cppm
         utils/git/get_worktree_paths.cppm
         utils/git/git.cppm
         utils/git/git_diff.cppm
         utils/git/git_filesystem.cppm
-        utils/github_utils.cppm
+        utils/http/github_utils.cppm
         utils/git/gitignore.cppm
-        utils/glob_utils.cppm
-        utils/hash.cppm
-        utils/clipboard.cppm
+        utils/fs/glob_utils.cppm
+        utils/crypto/hash.cppm
+        utils/platform/clipboard.cppm
         utils/http/http.cppm
         utils/http/http_encoding.cppm
-        utils/hyperlink.cppm
-        utils/json.cppm
-        utils/skill_usage.cppm
-        utils/list_sessions.cppm
-        utils/lockfile.cppm
-        utils/log.cppm
-        utils/markdown_utils.cppm
-        utils/mcp_helpers.cppm
-        utils/mcp_validation.cppm
-        utils/memory_file_detection.cppm
+        utils/platform/hyperlink.cppm
+        utils/serdes/json.cppm
+        utils/skills/skill_usage.cppm
+        utils/session/list_sessions.cppm
+        utils/fs/lockfile.cppm
+        utils/diagnostics/log.cppm
+        utils/text/markdown_utils.cppm
+        utils/mcp/mcp_helpers.cppm
+        utils/mcp/mcp_validation.cppm
+        utils/fs/memory_file_detection.cppm
         utils/messages/message_mappers.cppm
         utils/model/ant_models.cppm
         utils/model/configs.cppm
@@ -80,39 +80,39 @@ target_sources(cc_utils
         utils/model/model_capabilities.cppm
         utils/model/model_support_overrides.cppm
         utils/model/providers.cppm
-        utils/model_aliases.cppm
-        utils/model_cost.cppm
+        utils/model/model_aliases.cppm
+        utils/model/model_cost.cppm
         utils/messages/message_predicates.cppm
-        utils/native_installer.cppm
+        utils/platform/native_installer.cppm
         utils/containers/object_group_by.cppm
-        utils/path.cppm
-        utils/path_utils.cppm
-        utils/pdf.cppm
-        utils/parse_int.cppm
-        utils/parse_references.cppm
+        utils/fs/path.cppm
+        utils/fs/path_utils.cppm
+        utils/media/pdf.cppm
+        utils/text/parse_int.cppm
+        utils/text/parse_references.cppm
         utils/http/peer_address.cppm
-        utils/permissions/permissions.cppm
-        utils/permissions/permissions_engine.cppm
-        utils/plans.cppm
+        utils/security/permissions.cppm
+        utils/security/permissions_engine.cppm
+        utils/tasks/plans.cppm
         utils/plugin/plugin_dependency_resolver.cppm
         utils/plugin/plugin_identifier.cppm
         utils/plugin/plugin_marketplace_rules.cppm
         utils/plugin/plugin_versioning.cppm
         utils/platform/platform.cppm
-        utils/powershell_parser.cppm
-        utils/process.cppm
-        utils/privacy_level.cppm
-        utils/prompt_category.cppm
+        utils/parsing/powershell_parser.cppm
+        utils/process/process.cppm
+        utils/security/privacy_level.cppm
+        utils/prompt/prompt_category.cppm
         utils/http/proxy_utils.cppm
-        utils/query_guard.cppm
-        utils/read_file_in_range.cppm
-        utils/semantic_boolean.cppm
-        utils/semantic_number.cppm
-        utils/sanitization.cppm
-        utils/script_tool_enabled.cppm
-        utils/session_helpers.cppm
-        utils/session_restore.cppm
-        utils/session_storage.cppm
+        utils/security/query_guard.cppm
+        utils/fs/read_file_in_range.cppm
+        utils/text/semantic_boolean.cppm
+        utils/text/semantic_number.cppm
+        utils/security/sanitization.cppm
+        utils/tools/script_tool_enabled.cppm
+        utils/session/session_helpers.cppm
+        utils/session/session_restore.cppm
+        utils/session/session_storage.cppm
         utils/containers/set_utils.cppm
         utils/settings/settings_merge.cppm
         utils/settings/settings_paths.cppm
@@ -121,37 +121,37 @@ target_sources(cc_utils
         utils/shell/shell.cppm
         utils/shell/shell_parser.cppm
         utils/shell/shell_rule_matching.cppm
-        utils/slash_command_parsing.cppm
+        utils/parsing/slash_command_parsing.cppm
         utils/http/ssrf_guard.cppm
-        utils/stats_utils.cppm
-        utils/string.cppm
-        utils/string_utils.cppm
+        utils/text/stats_utils.cppm
+        utils/text/string.cppm
+        utils/text/string_utils.cppm
         utils/swarm/swarm.cppm
-        utils/system_prompt.cppm
-        utils/system_theme.cppm
-        utils/task_output.cppm
-        utils/task_utils.cppm
-        utils/tagged_id.cppm
-        utils/team_helpers.cppm
-        utils/tempfile.cppm
-        utils/terminal_helpers.cppm
-        utils/text_highlighting.cppm
-        utils/theme.cppm
-        utils/thinking.cppm
-        utils/timeouts.cppm
-        utils/token_budget.cppm
-        utils/tokens.cppm
-        utils/tool_helpers.cppm
-        utils/permissions/tool_deny_rules.cppm
-        utils/user_utils.cppm
-        utils/words.cppm
-        utils/uuid_utils.cppm
+        utils/model/system_prompt.cppm
+        utils/platform/system_theme.cppm
+        utils/tasks/task_output.cppm
+        utils/tasks/task_utils.cppm
+        utils/types/tagged_id.cppm
+        utils/teams/team_helpers.cppm
+        utils/fs/tempfile.cppm
+        utils/platform/terminal_helpers.cppm
+        utils/parsing/text_highlighting.cppm
+        utils/theme/theme.cppm
+        utils/model/thinking.cppm
+        utils/process/timeouts.cppm
+        utils/model/token_budget.cppm
+        utils/model/tokens.cppm
+        utils/tools/tool_helpers.cppm
+        utils/security/tool_deny_rules.cppm
+        utils/platform/user_utils.cppm
+        utils/text/words.cppm
+        utils/crypto/uuid_utils.cppm
         utils/platform/xdg.cppm
-        utils/yaml.cppm
+        utils/serdes/yaml.cppm
         utils/hooks/hooks_config.cppm
         utils/hooks/hooks_execution.cppm
         utils/hooks/hooks_registry.cppm
-        utils/statusline_runner.cppm
+        utils/statusline/statusline_runner.cppm
         utils/plugin/plugin_lifecycle.cppm
         utils/plugin/plugin_loader.cppm
         utils/plugin/plugin_manager.cppm
@@ -165,24 +165,24 @@ target_sources(cc_utils
         utils/swarm/swarm_coordination.cppm
         utils/swarm/swarm_helpers.cppm
         utils/swarm/swarm_pane_observer.cppm
-        utils/tool_management.cppm
-        utils/mcp_transport.cppm
-        utils/image_store.cppm
+        utils/tools/tool_management.cppm
+        utils/mcp/mcp_transport.cppm
+        utils/media/image_store.cppm
         utils/platform/platform_paths.cppm
-        utils/file_index.cppm
+        utils/fs/file_index.cppm
         utils/tree_sitter/tree_sitter.cppm
         utils/tree_sitter/bash/ast.cppm
 )
 target_sources(cc_utils
     PRIVATE
-        utils/json_impl.cpp
-        utils/json_val_read.cpp
-        utils/json_parse.cpp
-        utils/json_mut_val.cpp
-        utils/json_mut_doc.cpp
-        utils/json_iter.cpp
-        utils/json_builders.cpp
-        utils/skill_usage_impl.cpp
+        utils/serdes/json_impl.cpp
+        utils/serdes/json_val_read.cpp
+        utils/serdes/json_parse.cpp
+        utils/serdes/json_mut_val.cpp
+        utils/serdes/json_mut_doc.cpp
+        utils/serdes/json_iter.cpp
+        utils/serdes/json_builders.cpp
+        utils/skills/skill_usage_impl.cpp
         utils/swarm/swarm_backends_shell.cpp
         utils/swarm/swarm_backends_detect.cpp
         utils/swarm/swarm_backends_tmux.cpp
