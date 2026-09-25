@@ -102,6 +102,14 @@ target_sources(cc_tools
         tools/runtime_registry_dispatch.cpp
         tools/runtime_registry_team_dispatch.cpp
         tools/runtime_registry_register.cpp
+        # RFC 0001 Phase C batch 3 — agent_runtime module implementation units
+        # (`module cc.tools.agent_runtime;`); same PRIVATE-only discipline.
+        tools/agent_runtime_text_impl.cpp
+        tools/agent_runtime_yaml_impl.cpp
+        tools/agent_runtime_json_impl.cpp
+        tools/agent_runtime_builtin_impl.cpp
+        tools/agent_runtime_sidechain_impl.cpp
+        tools/agent_runtime_store_impl.cpp
 )
 target_link_libraries(cc_tools
     PUBLIC

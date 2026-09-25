@@ -4,7 +4,6 @@
 # decreases shrink this file in the same split commit. c1 = must reach <30
 # when that module's batch merges; c2-done = <=100 cap now enforced.
 cc.tools.agent.utils 162
-cc.tools.agent_runtime 160
 cc.utils.json 131
 cc.state.selectors 118
 cc.utils.swarm_backends 116
@@ -54,6 +53,7 @@ cc.ui.screens.doctor_screen 24
 cc.ui.messages.messages_interactions 23
 cc.ui.features.tasks.task_list_view 20
 cc.tools.agent 19
+cc.tools.agent_runtime 18 c1 c2-done
 cc.ui.visual.code_highlight 17
 cc.ui.dialogs.sandbox_settings 15
 cc.services.mcp.client 12 c2-done
