@@ -176,6 +176,12 @@ target_sources(cc_utils
 target_sources(cc_utils
     PRIVATE
         utils/json_impl.cpp
+        utils/json_val_read.cpp
+        utils/json_parse.cpp
+        utils/json_mut_val.cpp
+        utils/json_mut_doc.cpp
+        utils/json_iter.cpp
+        utils/json_builders.cpp
         utils/skill_usage_impl.cpp
 )
 set_source_files_properties(utils/swarm_backends.cppm PROPERTIES

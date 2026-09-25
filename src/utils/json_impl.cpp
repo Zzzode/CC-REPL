@@ -52,4 +52,8 @@ std::string to_pretty_string(const JsonDoc& doc) {
     return result;
 }
 
+std::string to_string(JsonVal val) {
+    return val.to_string();
+}
+
 } // namespace cc::utils::json
