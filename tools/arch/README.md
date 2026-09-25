@@ -117,6 +117,10 @@ bodies belong there). It enforces `inline_def_baseline.txt`:
    C2 cap (100) fails — one cannot grow a new god interface unnoticed.
 3. **Graduation flags.** `c2-done` enforces ≤100; `c1` enforces <30 for
    the six RFC 0001 C1 modules once each split merges.
+4. **Phase D layout (RFC 0001).** A `cc.utils.*` interface placed flat
+   directly in `src/utils/` fails — modules live in a domain subdirectory
+   `src/utils/<area>/` while their module names stay `cc.utils.*`.
+   Frozen per-module exceptions live in `flat_utils_exceptions.txt`.
 
 ```bash
 python3 tools/arch/inline_def_check.py            # enforce

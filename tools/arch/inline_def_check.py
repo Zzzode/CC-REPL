@@ -48,6 +48,10 @@ HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 SRC = ROOT / "src"
 BASELINE = HERE / "inline_def_baseline.txt"
+# RFC 0001 Phase D: cc.utils.* modules live in domain subdirectories under
+# src/utils/<area>/; a module file placed flat directly in src/utils/ fails.
+# One module name per line may be frozen here as an explicit exception.
+FLAT_UTILS_EXCEPTIONS = HERE / "flat_utils_exceptions.txt"
 
 C2_LIMIT = 100   # no interface above this once graduated
 C1_LIMIT = 30    # the RFC-0001 C1 six must reach this
@@ -350,8 +354,20 @@ def analyze_interface(path: pathlib.Path) -> tuple[str, int, int, int]:
     return (m.group(1), bodies, defaulted, keep)
 
 
+def load_flat_utils_exceptions() -> set[str]:
+    if not FLAT_UTILS_EXCEPTIONS.exists():
+        return set()
+    out = set()
+    for line in FLAT_UTILS_EXCEPTIONS.read_text().splitlines():
+        line = line.split('#', 1)[0].strip()
+        if line:
+            out.add(line)
+    return out
+
+
 def run() -> dict:
     baseline = load_baseline()
+    flat_exceptions = load_flat_utils_exceptions()
     interfaces = sorted(glob.glob(str(SRC / '**' / '*.cppm'), recursive=True))
     rows = []
     violations: list[str] = []
@@ -362,6 +378,16 @@ def run() -> dict:
             continue
         effective = max(0, bodies - keep)
         rel = str(pathlib.Path(path).relative_to(ROOT))
+        # Phase D layout: a cc.utils.* interface must not sit flat directly in
+        # src/utils/ — it belongs in a domain subdirectory (names stay stable).
+        if (module.startswith("cc.utils.")
+                and rel.startswith("src/utils/")
+                and "/" not in rel[len("src/utils/"):]
+                and module not in flat_exceptions):
+            violations.append(
+                f"{module}: flat placement {rel} violates RFC 0001 Phase D "
+                f"(cc.utils.* modules live under src/utils/<area>/; move it or "
+                f"add a frozen exception to {FLAT_UTILS_EXCEPTIONS.name})")
         row = {'module': module, 'path': rel, 'inline': effective,
                'defaulted': defaulted, 'keep': keep}
         spec = baseline.get(module)

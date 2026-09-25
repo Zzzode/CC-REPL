@@ -1,0 +1,4 @@
+# RFC 0001 Phase D — frozen exceptions to the "no flat cc.utils.* module" gate.
+# One module name per line. A cc.utils.* interface must otherwise live in a
+# domain subdirectory under src/utils/<area>/ (its module NAME stays stable).
+# Empty by design: the 2026-09-26 relocation grouped every module.
