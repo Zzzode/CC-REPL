@@ -5,8 +5,9 @@
 ///   * Uses pipe() + fork() + execve("/bin/sh", {"sh","-c",cmd})
 ///   * Parent side uses poll() on the pipe set so streaming + timeout work on
 ///     Darwin/Linux without external event loops.
-///   * Timeout handler: a watchdog thread waits on pid with a deadline and
-///     sends SIGTERM then SIGKILL if the child is still alive.
+///   * Timeout handler: a watchdog thread waits on a deadline and sends
+///     SIGTERM then SIGKILL if the child is still alive (the parent alone
+///     reaps the child's status).
 ///   * Sandboxing: defaults to SoftEnvvars (sets __LD_UNIQUE / SANDBOX=1);
 ///     MacOSSandboxExec wraps the command via sandbox-exec.  P0 simply
 ///     constructs the profile; Phase 3+ hardens the allowlist.
@@ -289,11 +290,16 @@ inline void nonblock(int fd) {
             std::unique_lock<std::mutex> lk(wd->mtx);
             if (!wd->cv.wait_until(lk, *deadline, [&]{ return wd->done; })) {
                 wd->timed_out.store(true);
-                // SIGTERM then SIGKILL after 50ms grace.
+                // SIGTERM then SIGKILL after 50ms grace. Escalate with
+                // kill(pid, 0) for liveness, NEVER waitpid() here: the
+                // watchdog reaping the child would discard its status, and
+                // the main thread's waitpid would then return ECHILD with a
+                // zeroed wstatus (a racy "timeout exit code 0" observed on a
+                // loaded macos runner). A SIGKILL sent to an already-dead
+                // child simply fails with ESRCH and preserves its real status.
                 ::kill(pid, SIGTERM);
                 std::this_thread::sleep_for(milliseconds(50));
-                int wstatus{0};
-                if (::waitpid(pid, &wstatus, WNOHANG) == 0) {
+                if (::kill(pid, 0) == 0) {
                     ::kill(pid, SIGKILL);
                 }
             }
@@ -378,6 +384,9 @@ inline void nonblock(int fd) {
     for (int tries = 0; tries < 200 && got < 0; ++tries) {
         got = ::waitpid(pid, &wstatus, WNOHANG);
         if (got < 0 && errno == EINTR) { got = -1; continue; }
+        if (got < 0) {
+            break;  // unexpected error (e.g. ECHILD); the blocking wait below reports it
+        }
         if (got == 0) {
             std::this_thread::sleep_for(milliseconds(10));
             got = -1;
