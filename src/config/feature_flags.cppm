@@ -23,7 +23,6 @@ enum class Feature : std::uint32_t {
     Kairos,
     BridgeMode,
     Daemon,
-    VoiceMode,
     AgentTriggers,
     MonitorTool,
     Templates,
@@ -59,7 +58,6 @@ inline constexpr std::array<FeatureInfo, FEATURE_COUNT> FEATURE_REGISTRY = {{
     {Feature::Kairos,          "KAIROS",             "Kairos timing system",           false},
     {Feature::BridgeMode,      "BRIDGE_MODE",        "IDE bridge integration",         false},
     {Feature::Daemon,          "DAEMON",             "Background daemon mode",         false},
-    {Feature::VoiceMode,       "VOICE_MODE",         "Voice input support",            false},
     {Feature::AgentTriggers,   "AGENT_TRIGGERS",     "Automatic agent triggering",     false},
     {Feature::MonitorTool,     "MONITOR_TOOL",       "System monitoring tool",         false},
     {Feature::Templates,       "TEMPLATES",          "Template system",                false},
@@ -91,7 +89,7 @@ consteval bool feature_enabled([[maybe_unused]] Feature f) noexcept {
 
 /// Compile-time conditional execution (replaces IF_FEATURE macro)
 /// Usage:
-///   if constexpr (is_feature_active<Feature::VoiceMode>) { ... }
+///   if constexpr (is_feature_active<Feature::Buddy>) { ... }
 template <Feature F>
 inline constexpr bool is_feature_active = feature_enabled(F);
 

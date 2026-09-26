@@ -24,7 +24,6 @@ export namespace cc::core {
 enum class FeatureFlag : std::uint32_t {
     Proactive          = 1 << 0,   // Proactive suggestions
     BridgeMode         = 1 << 1,   // IDE bridge integration
-    VoiceMode          = 1 << 2,   // Voice input support
     Daemon             = 1 << 3,   // Background daemon mode
     AgentTriggers      = 1 << 4,   // Automatic agent triggering
     MonitorTool        = 1 << 5,   // System monitoring tool
