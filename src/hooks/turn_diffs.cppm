@@ -3,8 +3,6 @@ export module cc.hooks.turn_diffs;
 
 import std;
 
-import cc.state.app_state;
-
 export namespace cc::hooks::turn_diffs {
 
 struct FileDiff {

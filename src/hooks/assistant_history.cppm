@@ -3,8 +3,6 @@ export module cc.hooks.assistant_history;
 
 import std;
 
-import cc.state.app_state;
-
 export namespace cc::hooks::assistant_history {
 
 enum class MessageRole { user, assistant, system };

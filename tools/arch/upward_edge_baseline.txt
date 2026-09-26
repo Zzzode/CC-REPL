@@ -9,12 +9,8 @@
 # --- Core8 Phase B backlog ---
 cc.config.config -> cc.utils.json
 cc.config.settings -> cc.utils.json
-cc.hooks.assistant_history -> cc.state.app_state
-cc.hooks.background_task_navigation -> cc.state.app_state
-cc.hooks.prompt_suggestion -> cc.state.app_state
 cc.hooks.remaining_notifs -> cc.services.mcp.connection_manager
 cc.hooks.remaining_notifs -> cc.services.mcp.types
-cc.hooks.turn_diffs -> cc.state.app_state
 cc.hooks.voice_hooks -> cc.services.voice.keyterms
 cc.hooks.voice_hooks -> cc.services.voice.voice
 cc.hooks.voice_hooks -> cc.services.voice_stream_stt

@@ -3,8 +3,6 @@ export module cc.hooks.prompt_suggestion;
 
 import std;
 
-import cc.state.app_state;
-
 export namespace cc::hooks::prompt_suggestion {
 
 struct PromptSuggestion {

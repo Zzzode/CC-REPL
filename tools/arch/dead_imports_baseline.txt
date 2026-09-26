@@ -34,10 +34,6 @@ cc.commands.runtime_surface_commands -> cc.commands.init_verifiers
 cc.commands.runtime_surface_commands -> cc.commands.keybindings_cmd
 cc.commands.runtime_surface_commands -> cc.commands.security_review
 cc.context.mailbox -> cc.coordinator.swarm
-cc.hooks.assistant_history -> cc.state.app_state
-cc.hooks.background_task_navigation -> cc.state.app_state
-cc.hooks.prompt_suggestion -> cc.state.app_state
-cc.hooks.turn_diffs -> cc.state.app_state
 cc.keybindings.shortcut_format -> cc.keybindings.defaults
 cc.services.compact -> cc.utils.string
 cc.services.extract_memories -> cc.utils.file

@@ -3,8 +3,6 @@ export module cc.hooks.background_task_navigation;
 
 import std;
 
-import cc.state.app_state;
-
 export namespace cc::hooks::background_task_navigation {
 
 struct BackgroundTask {
