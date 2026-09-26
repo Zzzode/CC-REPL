@@ -1,5 +1,5 @@
 /// @file command_registry_init_d.cpp
-/// @brief Group D registration: system commands (permissions, plugin, voice, etc.)
+/// @brief Group D registration: system commands (permissions, plugin, etc.)
 module cc.commands.registry;
 
 import cc.commands.permissions_cmd;
@@ -16,7 +16,6 @@ import cc.commands.stickers;
 import cc.commands.tasks_cmd;
 import cc.commands.skills_cmd;
 import cc.commands.keybindings_cmd;
-import cc.commands.voice;
 
 namespace cc::commands {
 
@@ -35,7 +34,6 @@ void register_group_d_commands(CommandRegistry& registry) {
     registry.register_command<StickersCommand>();
     registry.register_command<TasksCommand>();
     registry.register_command<SkillsCommand>();
-    registry.register_command<VoiceCommand>();
 }
 
 } // namespace cc::commands

@@ -108,7 +108,6 @@ target_sources(cc_commands
         commands/usage.cppm
         commands/version.cppm
         commands/vim.cppm
-        commands/voice.cppm
 )
 target_sources(cc_commands PRIVATE
     commands/command_registry_init.cpp
