@@ -11,7 +11,6 @@ cc.config.config -> cc.utils.json
 cc.config.settings -> cc.utils.json
 cc.hooks.remaining_notifs -> cc.services.mcp.connection_manager
 cc.hooks.remaining_notifs -> cc.services.mcp.types
-cc.services.streaming_executor -> cc.tools.tool
 #
 # --- pre-RFC backlog (not scheduled by RFC 0001) ---
 # Config migration code sits in the config layer and uses utils json/file

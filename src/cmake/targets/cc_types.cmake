@@ -8,6 +8,7 @@ target_sources(cc_types
         types/permissions.cppm
         types/plugin.cppm
         types/timestamp.cppm
+        types/tool_types.cppm
         types/types.cppm
 )
 target_link_libraries(cc_types PUBLIC cc_utils)

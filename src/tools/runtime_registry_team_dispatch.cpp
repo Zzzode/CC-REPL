@@ -9,7 +9,8 @@ module cc.tools.runtime_registry;
 
 import std;
 
-import cc.tools.tool;
+import cc.types.tool_types;
+import cc.tools.tool;  // arch-check: keep-import (ToolRegistry; raw strings blind the parser)
 import cc.utils.json;
 import cc.tools.team;
 import cc.tools.send_message;

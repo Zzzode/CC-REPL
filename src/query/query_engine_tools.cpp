@@ -10,7 +10,7 @@ module cc.query.query_engine;
 import std;
 
 import cc.types.types;
-import cc.tools.tool;
+import cc.types.tool_types;
 import cc.utils.json;
 import cc.hooks.tool_permissions;
 import cc.hooks.lifecycle_hooks;

@@ -10,7 +10,7 @@ module cc.tools.runtime_registry;
 
 import std;
 
-import cc.tools.tool;
+import cc.types.tool_types;
 import cc.tools.computer_use;
 import cc.tools.runtime_computer_use;
 import cc.tools.mcp;

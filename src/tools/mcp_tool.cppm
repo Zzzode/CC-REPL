@@ -17,7 +17,7 @@ import cc.services.mcp.connection_manager;
 import cc.services.mcp.auth;
 import cc.services.mcp.types;
 import cc.utils.json;
-import cc.tools.tool;
+import cc.types.tool_types;
 import cc.tools.mcp_classify;  // migrated: integrate collapse decision
 import cc.hooks.remaining_notifs;  // W7: feed MCP connectivity slot from live manager
 

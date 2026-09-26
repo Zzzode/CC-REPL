@@ -9,7 +9,7 @@ import std;
 
 import cc.tools.agent;
 import cc.tools.agent_types;
-import cc.tools.tool;
+import cc.types.tool_types;
 
 export namespace cc::tools {
 

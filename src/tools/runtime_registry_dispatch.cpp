@@ -8,7 +8,8 @@ module cc.tools.runtime_registry;
 
 import std;
 
-import cc.tools.tool;
+import cc.types.tool_types;
+import cc.tools.tool;  // arch-check: keep-import (ToolRegistry; raw strings blind the parser)
 import cc.tools.ask_user;
 import cc.tools.plan_mode;
 import cc.tools.worktree;

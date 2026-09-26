@@ -2229,19 +2229,19 @@ TEST(ToolInput, HasFieldParsesTopLevelJsonKeys) {
       "nested": {"command": "pwd"}
     })");
 
-    EXPECT_TRUE(input.has_field("cwd"));
-    EXPECT_TRUE(input.has_field("description"));
-    EXPECT_TRUE(input.has_field("nested"));
-    EXPECT_FALSE(input.has_field("timeout"));
-    EXPECT_FALSE(input.has_field("command"));
-    EXPECT_FALSE(input.has_field("nested_field"));
-    EXPECT_FALSE(input.has_field(""));
+    EXPECT_TRUE(cc::core::has_field(input, "cwd"));
+    EXPECT_TRUE(cc::core::has_field(input, "description"));
+    EXPECT_TRUE(cc::core::has_field(input, "nested"));
+    EXPECT_FALSE(cc::core::has_field(input, "timeout"));
+    EXPECT_FALSE(cc::core::has_field(input, "command"));
+    EXPECT_FALSE(cc::core::has_field(input, "nested_field"));
+    EXPECT_FALSE(cc::core::has_field(input, ""));
 }
 
 TEST(ToolInput, HasFieldReturnsFalseForInvalidOrNonObjectJson) {
-    EXPECT_FALSE(cc::core::ToolInput::from_json(R"("cwd")").has_field("cwd"));
-    EXPECT_FALSE(cc::core::ToolInput::from_json(R"(["cwd"])").has_field("cwd"));
-    EXPECT_FALSE(cc::core::ToolInput::from_json(R"({"cwd")").has_field("cwd"));
+    EXPECT_FALSE(cc::core::has_field(cc::core::ToolInput::from_json(R"("cwd")"), "cwd"));
+    EXPECT_FALSE(cc::core::has_field(cc::core::ToolInput::from_json(R"(["cwd"])"), "cwd"));
+    EXPECT_FALSE(cc::core::has_field(cc::core::ToolInput::from_json(R"({"cwd")"), "cwd"));
 }
 
 TEST(Tools, BashToolCapturesStderrAndNonZeroExitCode) {
@@ -10154,12 +10154,12 @@ rl.on('line', line => {
 
 TEST(ToolInput, HasFieldQueriesTopLevelKeysViaCanonicalJson) {
     auto input = cc::core::ToolInput::from_json(R"({"command":"run","args":[1,2]})");
-    EXPECT_TRUE(input.has_field("command"));
-    EXPECT_TRUE(input.has_field("args"));
-    EXPECT_FALSE(input.has_field("missing"));
-    EXPECT_FALSE(input.has_field(""));            // empty key is never present
-    EXPECT_FALSE(cc::core::ToolInput::from_json(R"({})").has_field("command"));
-    EXPECT_FALSE(cc::core::ToolInput::from_json("not json").has_field("command"));
+    EXPECT_TRUE(cc::core::has_field(input, "command"));
+    EXPECT_TRUE(cc::core::has_field(input, "args"));
+    EXPECT_FALSE(cc::core::has_field(input, "missing"));
+    EXPECT_FALSE(cc::core::has_field(input, ""));            // empty key is never present
+    EXPECT_FALSE(cc::core::has_field(cc::core::ToolInput::from_json(R"({})"), "command"));
+    EXPECT_FALSE(cc::core::has_field(cc::core::ToolInput::from_json("not json"), "command"));
 }
 
 TEST(RuntimeComputerUse, EscapesAndBuildsActionPayload) {

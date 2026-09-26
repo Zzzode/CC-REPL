@@ -11,7 +11,7 @@ module cc.tools.runtime_registry;
 
 import std;
 
-import cc.tools.tool;
+import cc.types.tool_types;
 import cc.tools.lsp;
 import cc.tools.script;
 import cc.tools.script_types;

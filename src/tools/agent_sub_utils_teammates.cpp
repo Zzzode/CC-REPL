@@ -8,7 +8,7 @@ import std;
 
 import cc.utils.swarm_backends;
 import cc.tools.team;
-import cc.tools.tool;
+import cc.types.tool_types;
 
 namespace cc::tools::agent::utils {
 

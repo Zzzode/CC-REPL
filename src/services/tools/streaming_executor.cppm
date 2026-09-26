@@ -11,7 +11,7 @@ export module cc.services.streaming_executor;
 
 import std;
 
-import cc.tools.tool;
+import cc.types.tool_types;
 import cc.utils.async;
 import cc.utils.error;
 
