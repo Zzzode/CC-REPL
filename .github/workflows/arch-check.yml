@@ -23,9 +23,15 @@ jobs:
       # Current-state gate (RFC 0001 E0): module graph stays a DAG and no
       # new non-contract upward edge or dead import is introduced beyond
       # the frozen snapshots in tools/arch/*_baseline.txt.
-      # The --target-core8 future-state gate is not run in CI until Phase B.
+      # --target-core8 also evaluates every current-state predicate AND
+      # the RFC 0001 Phase B future-state gate (9 singleton areas incl.
+      # cc.orchestration). Enabled from Phase B batch 5 (2026-09-27),
+      # the batch that dissolved the {cc.hooks,cc.services,cc.tools} SCC;
+      # it then stays green through the remaining lifts and prevents the
+      # SCC from silently reforming (a contract-only return path can pass
+      # the default predicates while closing the loop).
       - name: Architecture graph check
-        run: python3 tools/arch/graph_check.py
+        run: python3 tools/arch/graph_check.py --target-core8
       # RFC 0001 Phase C ratchet: no interface may grow its semantic inline
       # body count above its frozen snapshot, and a new >100-body god
       # interface fails closed. Baseline: tools/arch/inline_def_baseline.txt.
