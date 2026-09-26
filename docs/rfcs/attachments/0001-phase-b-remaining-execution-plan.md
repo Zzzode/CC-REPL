@@ -1,6 +1,6 @@
 # RFC 0001 Phase B — remaining-families execution plan (2026-09-26)
 
-Status: **design artifact**, produced by a 17-agent workflow (8 parallel family mappers over the live tree at 7aa4daa, one adversarial verifier per plan, one synthesis with an executable cumulative Tarjan replay). Every family plan was initially returned `request-changes` by its skeptic; the corrections below are merged. This is the execution contract for the remaining Phase B work; each batch still gets its own implementation agent + independent adversarial review + dual-preset/serial-ctest/macos-14 gates, and RFC §12 records measured results per landed batch.
+Status: **design artifact**, produced by a 17-agent workflow (8 parallel family mappers over the live tree at 7aa4daa (module counts in per-batch specs are measured live; the replay parses the working tree, not the 7aa4daa snapshot), one adversarial verifier per plan, one synthesis with an executable cumulative Tarjan replay). Every family plan was initially returned `request-changes` by its skeptic; the corrections below are merged. This is the execution contract for the remaining Phase B work; each batch still gets its own implementation agent + independent adversarial review + dual-preset/serial-ctest/macos-14 gates, and RFC §12 records measured results per landed batch.
 
 Live inputs: 841 modules/958 units; one directory SCC `{cc.hooks, cc.services, cc.tools}`; `graph_check --target-core8` FAIL; 13 frozen upward edges (backlog), 139 frozen dead imports; serial ctest baseline **1699**.
 
