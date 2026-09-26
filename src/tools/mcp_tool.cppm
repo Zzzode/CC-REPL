@@ -864,6 +864,33 @@ namespace detail {
 // but this setter takes no lock itself, so concurrent install is unsupported.
 void set_core_settings_mcp_loader(CoreSettingsMcpServersLoader loader);
 
+// RFC-0001 B6: sink fed the same live manager snapshots all_statuses()
+// projects into its returned statuses. It is an additive seam consumed by
+// the interim cc.bootstrap MCP-connectivity bridge (B7). The hook-side
+// projection inside all_statuses() stays in place until B8, so during the
+// interim both projections are double-published from identical snapshot
+// data; B8 removes the hook leg and this sink becomes the sole feed.
+using McpSnapshotsSink =
+    std::function<void(std::vector<svc_mcp::McpServerSnapshot>)>;
+
+namespace detail {
+// Function-local static: one strong symbol across TUs, same anchor pattern as
+// core_settings_mcp_loader_slot / global_mcp_router. Storage/definition lives
+// in the mcp_snapshots_sink implementation unit (inline-def ratchet).
+[[nodiscard]] McpSnapshotsSink& mcp_snapshots_sink();
+}  // namespace detail
+
+// Install (or, with a null/empty function, clear) the snapshots sink.
+// Defined in the mcp_snapshots_sink implementation unit.
+//
+// Threading precondition: call only from a single main thread before the
+// NativeMcpRuntime worker threads exist (production: once in main()); tests
+// install/reset serially. The slot is invoked by all_statuses() AFTER it
+// releases NativeMcpRuntime::mutex_ (the snapshots are self-contained value
+// copies), and this setter takes no lock itself — so concurrent install or
+// invocation is unsupported; a sink must not re-install itself mid-call.
+void set_mcp_snapshots_sink(McpSnapshotsSink sink);
+
 class NativeMcpRuntime {
 public:
     static NativeMcpRuntime& instance() {
@@ -1017,16 +1044,30 @@ public:
     [[nodiscard]] std::vector<NativeMcpServerStatus> all_statuses() {
 	if (auto loaded = ensure_loaded_from_config(); !loaded) return {};
 
-        std::lock_guard lock(mutex_);
         std::vector<NativeMcpServerStatus> statuses;
-        // Refresh the McpConnectivity notification slot from the same live
-        // snapshots the UI status read consumes. Mirrors TS
-        // useMcpConnectivityStatus deriving from mcpClients. Idempotent and
-        // called only on status reads, not in any hot loop.
-        cc::hooks::notifs::inject_mcp_connectivity_from_manager(*manager_);
-        for (const auto& snapshot : manager_->snapshot_all_servers()) {
-            statuses.push_back(to_native_status(snapshot));
+        std::vector<svc_mcp::McpServerSnapshot> snapshots;
+        {
+            std::lock_guard lock(mutex_);
+            // Refresh the McpConnectivity notification slot from the same live
+            // snapshots the UI status read consumes. Mirrors TS
+            // useMcpConnectivityStatus deriving from mcpClients. Idempotent and
+            // called only on status reads, not in any hot loop.
+            //
+            // RFC-0001 B6 INTERIM: this hook-side projection stays until B8;
+            // the additive snapshot sink below is fired with the SAME named
+            // snapshots local, so the double-publish carries identical data.
+            cc::hooks::notifs::inject_mcp_connectivity_from_manager(*manager_);
+            snapshots = manager_->snapshot_all_servers();
+            for (const auto& snapshot : snapshots) {
+                statuses.push_back(to_native_status(snapshot));
+            }
         }
+        // RFC-0001 B6: fire the additive sink only after mutex_ is released —
+        // the sink is external composition code and must not run under the
+        // runtime lock. One fetch, shared with the loop above; unset sink is
+        // a no-op apart from the moved-away vector. The ensure_loaded early
+        // return above guarantees the failure path ({}) never fires the sink.
+        if (auto& s = detail::mcp_snapshots_sink(); s) s(std::move(snapshots));
         return statuses;
     }
 

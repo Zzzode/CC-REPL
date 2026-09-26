@@ -55,6 +55,7 @@ import cc.utils.team_helpers;
 import cc.hooks.tool_permissions;
 import cc.services.api.client;
 import cc.services.mcp.types;
+import cc.services.mcp.connection_manager;  // RFC-0001 B6: svc_mcp::McpServerSnapshot
 import cc.tools.repl;
 import cc.tools.skill;
 import cc.tools.agent.utils;
@@ -386,6 +387,16 @@ struct RuntimeComputerUseProviderGuard {
 struct CoreSettingsMcpLoaderGuard {
     ~CoreSettingsMcpLoaderGuard() {
         cc::tools::set_core_settings_mcp_loader(nullptr);
+        (void)cc::tools::sync_native_mcp_servers({});
+    }
+};
+
+// RFC-0001 B6: the MCP snapshots sink is a process-global function-local
+// static; every test that installs one must clear it so later cases stay
+// hermetic (no stale captures of stack-local test state).
+struct McpSnapshotsSinkGuard {
+    ~McpSnapshotsSinkGuard() {
+        cc::tools::set_mcp_snapshots_sink(nullptr);
         (void)cc::tools::sync_native_mcp_servers({});
     }
 };
@@ -9802,6 +9813,97 @@ TEST(Tools, CoreSettingsMcpLoaderErrorPropagates) {
     auto reloaded = cc::tools::reload_native_mcp_servers_from_config();
     ASSERT_FALSE(reloaded.has_value());
     EXPECT_NE(reloaded.error().find("boom"), std::string::npos) << reloaded.error();
+}
+
+// RFC-0001 B6: the additive snapshots sink receives exactly one vector per
+// all_statuses call, carrying the same server ids/statuses the returned
+// statuses show; once cleared it is never called again.
+TEST(Tools, McpSnapshotsSinkReceivesOneVectorPerStatusRead) {
+    McpSnapshotsSinkGuard sink_guard;
+
+    // Synced stdio servers are never connected in this case, so their
+    // snapshots are deterministically Disconnected ("not started") — no node
+    // fixture and no detached auto-connect thread needed. sync() marks the
+    // runtime loaded, so all_statuses() takes no ensure_loaded config path.
+    ASSERT_TRUE(cc::tools::sync_native_mcp_servers({
+        cc::tools::NativeMcpConfiguredServer{
+            .name = "sink_alpha",
+            .command = "true",
+            .args = {},
+            .env = {},
+        },
+        cc::tools::NativeMcpConfiguredServer{
+            .name = "sink_beta",
+            .command = "true",
+            .args = {},
+            .env = {},
+        },
+    }).has_value());
+
+    struct Recorder {
+        std::vector<std::vector<cc::services::mcp::McpServerSnapshot>> calls;
+    } recorder;
+    cc::tools::set_mcp_snapshots_sink(
+        [&recorder](std::vector<cc::services::mcp::McpServerSnapshot> snapshots) {
+            recorder.calls.push_back(std::move(snapshots));
+        });
+
+    auto expect_snapshots_match = [&recorder](
+                                      const std::vector<cc::tools::NativeMcpServerStatus>& statuses,
+                                      std::size_t call_index) {
+        ASSERT_LT(call_index, recorder.calls.size());
+        const auto& snaps = recorder.calls[call_index];
+        ASSERT_EQ(snaps.size(), statuses.size());
+        for (const auto& status : statuses) {
+            const auto snapshot_it = std::ranges::find(snaps, status.name,
+                &cc::services::mcp::McpServerSnapshot::name);
+            ASSERT_NE(snapshot_it, snaps.end()) << status.name;
+            EXPECT_EQ(snapshot_it->status, cc::services::mcp::ConnectionStatus::Disconnected);
+            EXPECT_EQ(status.status, "not started");
+        }
+    };
+
+    auto first = cc::tools::native_mcp_statuses();
+    ASSERT_EQ(recorder.calls.size(), 1u);
+    ASSERT_EQ(first.size(), 2u);
+    expect_snapshots_match(first, 0);
+
+    auto second = cc::tools::native_mcp_statuses();
+    EXPECT_EQ(recorder.calls.size(), 2u);
+    EXPECT_EQ(second.size(), 2u);
+    expect_snapshots_match(second, 1);
+
+    // Cleared sink: further status reads must not reach it.
+    cc::tools::set_mcp_snapshots_sink(nullptr);
+    auto third = cc::tools::native_mcp_statuses();
+    auto fourth = cc::tools::native_mcp_statuses();
+    EXPECT_EQ(recorder.calls.size(), 2u);
+    EXPECT_EQ(third.size(), 2u);
+    EXPECT_EQ(fourth.size(), 2u);
+}
+
+// RFC-0001 B6: the ensure_loaded_from_config() failure path still returns {}
+// ahead of any sink fire — identical failure semantics to the pre-sink code.
+TEST(Tools, McpSnapshotsSinkNotFiredWhenConfigLoadFails) {
+    McpSnapshotsSinkGuard sink_guard;
+    CoreSettingsMcpLoaderGuard loader_guard;
+    cc::tools::set_core_settings_mcp_loader(
+        []() -> std::expected<std::vector<cc::tools::NativeMcpConfiguredServer>, std::string> {
+            return std::unexpected(std::string("sink-boom"));
+        });
+
+    int sink_calls = 0;
+    cc::tools::set_mcp_snapshots_sink(
+        [&sink_calls](std::vector<cc::services::mcp::McpServerSnapshot>) {
+            ++sink_calls;
+        });
+
+    auto reloaded = cc::tools::reload_native_mcp_servers_from_config();
+    ASSERT_FALSE(reloaded.has_value());
+
+    auto statuses = cc::tools::native_mcp_statuses();
+    EXPECT_TRUE(statuses.empty());
+    EXPECT_EQ(sink_calls, 0);
 }
 
 TEST(Tools, McpAuthUsesNativeOAuthFlowForConfiguredRemoteServers) {
