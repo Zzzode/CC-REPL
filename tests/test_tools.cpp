@@ -28,6 +28,7 @@ import cc.tools.web_fetch;
 import cc.tools.web_search;
 import cc.tools.web_browser;
 import cc.tools.mcp;
+import cc.commands.mcp.core_settings_loader;
 import cc.tools.worktree;
 import cc.tools.agent;
 import cc.tools.agent_runtime;
@@ -376,6 +377,16 @@ struct RuntimeComputerUseProviderGuard {
     ~RuntimeComputerUseProviderGuard() {
         cc::tools::clear_runtime_computer_use_capture_provider_for_testing();
         cc::tools::clear_runtime_computer_use_input_provider_for_testing();
+    }
+};
+
+// RFC-0001 B4: the core-settings MCP loader is a process-global function-local
+// static; every test that installs one must clear it so later cases stay
+// hermetic (no real-HOME ConfigManager reads, no detached connect threads).
+struct CoreSettingsMcpLoaderGuard {
+    ~CoreSettingsMcpLoaderGuard() {
+        cc::tools::set_core_settings_mcp_loader(nullptr);
+        (void)cc::tools::sync_native_mcp_servers({});
     }
 };
 
@@ -9699,6 +9710,10 @@ TEST(Tools, NativeMcpRuntimeLoadsRemoteConfigWithOAuthFromConfigFiles) {
     fs::remove_all(root);
     fs::create_directories(root / ".loom");
     EnvironmentGuard home_guard("HOME", root.string());
+    // RFC-0001 B4: the core ConfigManager layer now reaches the runtime only
+    // through the production-installed loader sink.
+    CoreSettingsMcpLoaderGuard loader_guard;
+    cc::commands::install_core_settings_mcp_loader();
 
     {
         std::ofstream config(root / ".loom" / "config.json");
@@ -9742,6 +9757,51 @@ TEST(Tools, NativeMcpRuntimeLoadsRemoteConfigWithOAuthFromConfigFiles) {
 
     ASSERT_TRUE(cc::tools::sync_native_mcp_servers({}).has_value());
     fs::remove_all(root);
+}
+
+TEST(Tools, CoreSettingsMcpLoaderFeedsLazyLoad) {
+    auto root = fs::weakly_canonical(fs::temp_directory_path()) / "loom_mcp_loader_feed_test";
+    fs::remove_all(root);
+    fs::create_directories(root / ".loom");
+    EnvironmentGuard home_guard("HOME", root.string());
+    CoreSettingsMcpLoaderGuard loader_guard;
+
+    cc::tools::set_core_settings_mcp_loader(
+        []() -> std::expected<std::vector<cc::tools::NativeMcpConfiguredServer>, std::string> {
+            cc::tools::NativeMcpConfiguredServer server;
+            server.name = "loader_fixture";
+            server.transport = cc::services::mcp::TransportType::StreamableHttp;
+            server.url = "https://loader.example.com/mcp";
+            server.headers.emplace("X-Loader", "yes");
+            return std::vector<cc::tools::NativeMcpConfiguredServer>{std::move(server)};
+        });
+
+    {
+        CurrentPathGuard cwd(root);
+        auto reloaded = cc::tools::reload_native_mcp_servers_from_config();
+        ASSERT_TRUE(reloaded.has_value()) << reloaded.error();
+
+        auto configured = cc::tools::native_mcp_configured_server("loader_fixture");
+        ASSERT_TRUE(configured.has_value());
+        EXPECT_EQ(configured->name, "loader_fixture");
+        EXPECT_EQ(configured->url, "https://loader.example.com/mcp");
+        EXPECT_EQ(configured->transport, cc::services::mcp::TransportType::StreamableHttp);
+        EXPECT_EQ(configured->headers.at("X-Loader"), "yes");
+    }
+
+    fs::remove_all(root);
+}
+
+TEST(Tools, CoreSettingsMcpLoaderErrorPropagates) {
+    CoreSettingsMcpLoaderGuard loader_guard;
+    cc::tools::set_core_settings_mcp_loader(
+        []() -> std::expected<std::vector<cc::tools::NativeMcpConfiguredServer>, std::string> {
+            return std::unexpected(std::string("boom"));
+        });
+
+    auto reloaded = cc::tools::reload_native_mcp_servers_from_config();
+    ASSERT_FALSE(reloaded.has_value());
+    EXPECT_NE(reloaded.error().find("boom"), std::string::npos) << reloaded.error();
 }
 
 TEST(Tools, McpAuthUsesNativeOAuthFlowForConfiguredRemoteServers) {

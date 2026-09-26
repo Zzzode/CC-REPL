@@ -5588,6 +5588,222 @@ TEST(ConfigManager, PreservesRemoteMcpServerAuthSettings) {
     fs::remove_all(root);
 }
 
+// RFC-0001 B4: persisted-data round-trip coverage for the canonical
+// cc.config.mcp_types settings shape — legacy snake_case reads, project/global
+// layering, and environment-layer non-interference.
+TEST(McpTypes, ReadsOldShapedSnakeCaseAndRewritesCamelCase) {
+    const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
+    const auto root = fs::temp_directory_path() / ("loom_mcp_types_legacy_test_" + std::to_string(suffix));
+    fs::create_directories(root);
+    const auto global_path = root / "global.json";
+    const auto project_path = root / "project.json";
+
+    {
+        std::ofstream file(project_path);
+        // Every legacy snake_case key the parser historically accepted, plus
+        // "transport" (instead of "type") and the two documented-but-unread
+        // keys "disabled" / oauth "issuer".
+        file << R"JSON({
+  "mcpServers": {
+    "legacy": {
+      "transport": "http",
+      "url": "https://mcp.example.com/mcp",
+      "headers": {"X-Test": "present"},
+      "headers_helper": "node headers.js",
+      "disabled": false,
+      "oauth": {
+        "auth_server_metadata_url": "https://auth.example.com/.well-known/oauth-authorization-server",
+        "callback_port": 19485,
+        "client_id": "client-1",
+        "xaa": true,
+        "issuer": "https://issuer.example.com"
+      }
+    }
+  }
+})JSON";
+    }
+
+    auto assert_legacy_fields = [](const cc::core::ConfigManager& manager) {
+        ASSERT_EQ(manager.settings().mcp_servers.size(), 1u);
+        const auto& server = manager.settings().mcp_servers.front();
+        EXPECT_EQ(server.name, "legacy");
+        EXPECT_EQ(server.transport, "http");
+        ASSERT_TRUE(server.url.has_value());
+        EXPECT_EQ(*server.url, "https://mcp.example.com/mcp");
+        EXPECT_EQ(server.headers.at("X-Test"), "present");
+        ASSERT_TRUE(server.headers_helper.has_value());
+        EXPECT_EQ(*server.headers_helper, "node headers.js");
+        ASSERT_TRUE(server.oauth.has_value());
+        ASSERT_TRUE(server.oauth->auth_server_metadata_url.has_value());
+        EXPECT_EQ(*server.oauth->auth_server_metadata_url,
+                  "https://auth.example.com/.well-known/oauth-authorization-server");
+        ASSERT_TRUE(server.oauth->callback_port.has_value());
+        EXPECT_EQ(*server.oauth->callback_port, 19485);
+        ASSERT_TRUE(server.oauth->client_id.has_value());
+        EXPECT_EQ(*server.oauth->client_id, "client-1");
+        EXPECT_TRUE(server.oauth->xaa);
+        // ACTUAL PARSER BEHAVIOR (RFC-0001 B4): neither MCP "disabled" nor
+        // oauth "issuer" is read by ConfigManager::load_from_file even though
+        // both fields exist on the canonical structs — the legacy values are
+        // dropped on read, not round-tripped.
+        EXPECT_FALSE(server.disabled.has_value());
+        EXPECT_FALSE(server.oauth->issuer.has_value());
+    };
+
+    {
+        cc::core::ConfigManager loaded(global_path, project_path);
+        ASSERT_TRUE(loaded.load().has_value());
+        assert_legacy_fields(loaded);
+
+        // Re-save: the serializer must rewrite every READ field in canonical
+        // camelCase with zero loss.
+        ASSERT_TRUE(loaded.save(cc::core::ConfigSource::ProjectConfig).has_value());
+    }
+
+    std::string rewritten;
+    {
+        std::ifstream file(project_path);
+        std::stringstream buffer;
+        buffer << file.rdbuf();
+        rewritten = buffer.str();
+    }
+    EXPECT_NE(rewritten.find("\"headersHelper\""), std::string::npos);
+    EXPECT_EQ(rewritten.find("headers_helper"), std::string::npos);
+    EXPECT_NE(rewritten.find("\"authServerMetadataUrl\""), std::string::npos);
+    EXPECT_EQ(rewritten.find("auth_server_metadata_url"), std::string::npos);
+    EXPECT_NE(rewritten.find("\"callbackPort\""), std::string::npos);
+    EXPECT_EQ(rewritten.find("callback_port"), std::string::npos);
+    EXPECT_NE(rewritten.find("\"clientId\""), std::string::npos);
+    EXPECT_EQ(rewritten.find("client_id"), std::string::npos);
+    EXPECT_NE(rewritten.find("\"type\": \"http\""), std::string::npos);
+    EXPECT_EQ(rewritten.find("\"transport\""), std::string::npos);
+    // Unread keys are not synthesized back into the rewrite.
+    EXPECT_EQ(rewritten.find("disabled"), std::string::npos);
+    EXPECT_EQ(rewritten.find("issuer"), std::string::npos);
+
+    {
+        cc::core::ConfigManager reloaded(global_path, project_path);
+        ASSERT_TRUE(reloaded.load().has_value());
+        assert_legacy_fields(reloaded);
+    }
+
+    fs::remove_all(root);
+}
+
+TEST(McpTypes, ProjectMcpServersReplaceGlobal) {
+    const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
+    const auto root = fs::temp_directory_path() / ("loom_mcp_types_replace_test_" + std::to_string(suffix));
+    fs::create_directories(root);
+    const auto global_path = root / "global.json";
+    const auto project_path = root / "project.json";
+
+    {
+        std::ofstream global_file(global_path);
+        global_file << R"JSON({
+  "mcpServers": {
+    "g1": {"command": "node", "args": ["g1.js"]},
+    "g2": {"command": "node", "args": ["g2.js"]}
+  }
+})JSON";
+        std::ofstream project_file(project_path);
+        project_file << R"JSON({
+  "mcpServers": {
+    "p1": {"command": "node", "args": ["p1.js"]}
+  }
+})JSON";
+    }
+
+    cc::core::ConfigManager manager(global_path, project_path);
+    ASSERT_TRUE(manager.load().has_value());
+    ASSERT_EQ(manager.settings().mcp_servers.size(), 1u);
+    EXPECT_EQ(manager.settings().mcp_servers.front().name, "p1");
+
+    fs::remove_all(root);
+}
+
+TEST(McpTypes, ProjectWithoutMcpServersKeepsGlobal) {
+    const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
+    const auto root = fs::temp_directory_path() / ("loom_mcp_types_keep_global_test_" + std::to_string(suffix));
+    fs::create_directories(root);
+    const auto global_path = root / "global.json";
+    const auto project_path = root / "project.json";
+
+    {
+        std::ofstream global_file(global_path);
+        global_file << R"JSON({
+  "mcpServers": {
+    "g1": {"command": "node", "args": ["g1.js"]},
+    "g2": {"command": "node", "args": ["g2.js"]}
+  }
+})JSON";
+        // Project layer has no mcpServers key: globals survive untouched.
+        std::ofstream project_file(project_path);
+        project_file << R"JSON({
+  "systemPrompt": "keep"
+})JSON";
+    }
+
+    cc::core::ConfigManager manager(global_path, project_path);
+    ASSERT_TRUE(manager.load().has_value());
+    ASSERT_EQ(manager.settings().mcp_servers.size(), 2u);
+    EXPECT_EQ(manager.settings().mcp_servers[0].name, "g1");
+    EXPECT_EQ(manager.settings().mcp_servers[1].name, "g2");
+
+    // A missing global file is ConfigNotFound and tolerated.
+    cc::core::ConfigManager missing_global(root / "does-not-exist.json", project_path);
+    ASSERT_TRUE(missing_global.load().has_value());
+    EXPECT_TRUE(missing_global.settings().mcp_servers.empty());
+
+    fs::remove_all(root);
+}
+
+TEST(McpTypes, EnvironmentLayerLeavesMcpServersUntouched) {
+    const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
+    const auto root = fs::temp_directory_path() / ("loom_mcp_types_env_test_" + std::to_string(suffix));
+    fs::create_directories(root);
+    const auto global_path = root / "global.json";
+    const auto project_path = root / "project.json";
+
+    EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "env-layer-test-key");
+    EnvironmentGuard base_url_guard("ANTHROPIC_BASE_URL", "https://env.example.com");
+
+    {
+        std::ofstream project_file(project_path);
+        project_file << R"JSON({
+  "mcpServers": {
+    "remote": {
+      "type": "http",
+      "url": "https://mcp.example.com/mcp",
+      "headers": {"X-Test": "present"},
+      "headersHelper": "node headers.js"
+    }
+  }
+})JSON";
+    }
+
+    cc::core::ConfigManager manager(global_path, project_path);
+    ASSERT_TRUE(manager.load().has_value());
+
+    // The environment layer demonstrably ran...
+    ASSERT_TRUE(manager.settings().network.api_key.has_value());
+    EXPECT_EQ(*manager.settings().network.api_key, "env-layer-test-key");
+    ASSERT_TRUE(manager.settings().network.base_url.has_value());
+    EXPECT_EQ(*manager.settings().network.base_url, "https://env.example.com");
+
+    // ...and left the file-defined MCP servers byte-for-byte intact.
+    ASSERT_EQ(manager.settings().mcp_servers.size(), 1u);
+    const auto& server = manager.settings().mcp_servers.front();
+    EXPECT_EQ(server.name, "remote");
+    EXPECT_EQ(server.transport, "http");
+    ASSERT_TRUE(server.url.has_value());
+    EXPECT_EQ(*server.url, "https://mcp.example.com/mcp");
+    EXPECT_EQ(server.headers.at("X-Test"), "present");
+    ASSERT_TRUE(server.headers_helper.has_value());
+    EXPECT_EQ(*server.headers_helper, "node headers.js");
+
+    fs::remove_all(root);
+}
+
 TEST(ServerRoutes, MessageSessionsAndCompactUsePersistentState) {
     const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
     const auto root = fs::temp_directory_path() / ("loom_server_routes_test_" + std::to_string(suffix));

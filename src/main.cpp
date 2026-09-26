@@ -26,6 +26,7 @@ import cc.hooks.lifecycle_hooks;
 import cc.types.command;
 import cc.commands.command;
 import cc.commands.registry;
+import cc.commands.mcp.core_settings_loader;
 import cc.constants.product;
 import cc.services.api.session_ingress;
 import cc.utils.session_storage;
@@ -1794,6 +1795,12 @@ int main(int argc, const char* argv[]) {
 #endif
     }
     apply_teammate_environment(opts);
+
+    // RFC-0001 B4: install the core-settings (cc::core::ConfigManager) MCP
+    // loader sink before any path can reach NativeMcpRuntime config loading
+    // (runtime-tool fallback, dynamic tool/input-schema providers, and the
+    // in-process server routes all run in this one binary).
+    cc::commands::install_core_settings_mcp_loader();
 
     // Resolve leader/teammate identity from the environment just exported by
     // apply_teammate_environment and the canonical <team>/config.json (see

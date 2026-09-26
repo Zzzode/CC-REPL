@@ -52,6 +52,7 @@ target_sources(cc_commands
         commands/issue.cppm
         commands/keybindings_cmd.cppm
         commands/mcp_cmd.cppm
+        commands/mcp/core_settings_loader.cppm
         commands/memory.cppm
         commands/mobile.cppm
         commands/model.cppm

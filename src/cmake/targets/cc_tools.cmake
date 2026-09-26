@@ -119,6 +119,8 @@ target_sources(cc_tools
         tools/agent_sub_utils_teammates.cpp
         tools/agent_sub_utils_messages.cpp
         tools/agent_sub_utils_budget.cpp
+        # RFC-0001 B4 — cc.tools.mcp loader-sink storage (`module cc.tools.mcp;`).
+        tools/mcp_core_settings_loader.cpp
 )
 target_link_libraries(cc_tools
     PUBLIC

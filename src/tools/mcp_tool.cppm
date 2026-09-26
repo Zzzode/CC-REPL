@@ -7,7 +7,11 @@ export module cc.tools.mcp;
 
 import std;
 
-import cc.config.config;
+// RFC-0001 B4: only the rank-1 contract leaf is imported here; the core
+// ConfigManager layer reaches the runtime through the loader sink below
+// (cc::tools::set_core_settings_mcp_loader), installed by the production
+// composition root in cc.commands.mcp.core_settings_loader.
+import cc.config.mcp_types;
 import cc.services.mcp.config;
 import cc.services.mcp.connection_manager;
 import cc.services.mcp.auth;
@@ -835,6 +839,31 @@ inline void merge_native_mcp_servers(
     return servers;
 }
 
+// RFC-0001 B4: sink that lets the production composition root feed the
+// cc::core::ConfigManager ("core settings") MCP layer into the native runtime
+// without cc.tools.mcp importing cc.config.config. The loader returns the
+// mapped native servers (or the ConfigManager load error verbatim). When no
+// loader is installed (test binaries), the core settings layer is skipped and
+// only the services ConfigLoader + plugin discovery layers run.
+using CoreSettingsMcpServersLoader = std::function<
+    std::expected<std::vector<NativeMcpConfiguredServer>, std::string>()>;
+
+namespace detail {
+// Function-local static: one strong symbol across TUs, same anchor pattern as
+// NativeMcpRuntime::instance / global_mcp_router. Storage/definition lives in
+// the mcp_core_settings_loader implementation unit (inline-def ratchet).
+[[nodiscard]] CoreSettingsMcpServersLoader& core_settings_mcp_loader_slot();
+}  // namespace detail
+
+// Install (or, with a null/empty function, clear) the core-settings loader.
+// Defined in the mcp_core_settings_loader implementation unit.
+//
+// Threading precondition: call only from a single main thread before the
+// NativeMcpRuntime worker threads exist (production: once in main()); tests
+// install/reset serially. The slot is read under NativeMcpRuntime::mutex_
+// but this setter takes no lock itself, so concurrent install is unsupported.
+void set_core_settings_mcp_loader(CoreSettingsMcpServersLoader loader);
+
 class NativeMcpRuntime {
 public:
     static NativeMcpRuntime& instance() {
@@ -897,14 +926,16 @@ public:
 	std::lock_guard lock(mutex_);
 	if (loaded_) return {};
 
-        cc::core::ConfigManager config;
-        auto loaded = config.load();
-        if (!loaded) return std::unexpected(loaded.error().message);
-
-	std::vector<NativeMcpConfiguredServer> servers;
-	for (const auto& server : config.settings().mcp_servers) {
-	    servers.push_back(to_native_mcp_server(server));
-	}
+        // RFC-0001 B4: the core cc::core::ConfigManager layer is injected via
+        // the loader sink. No loader installed (test binaries) => the core
+        // settings layer is skipped (hermetic); the services ConfigLoader and
+        // plugin discovery layers below still run unchanged.
+        std::vector<NativeMcpConfiguredServer> servers;
+        if (auto& loader = detail::core_settings_mcp_loader_slot(); loader) {
+            auto core_servers = loader();
+            if (!core_servers) return std::unexpected(core_servers.error());
+            servers = std::move(*core_servers);
+        }
 	if (auto service_config = svc_mcp::ConfigLoader(fs::current_path()).load()) {
 	    std::vector<NativeMcpConfiguredServer> service_servers;
 	    for (const auto& [_, server] : service_config->servers) {
