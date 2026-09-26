@@ -130,3 +130,62 @@ python3 tools/arch/inline_def_check.py --update   # re-freeze after a split
 
 A body that must deliberately stay inline is exempted with a marker on
 its signature line: `// arch-check: keep-inline`.
+
+## Producer BMI / PSS measurement (RFC 0001 Phase E)
+
+`measure_bmi.py` compiles one module interface TU with its exact
+`compile_commands.json` argv + `@*.modmap` and records the producer
+cost reproducibly (it supersedes the ad-hoc `/tmp` scratch scripts used
+in early phases):
+
+- **`pss_peak_kb`** — peak **PSS** (proportional set size) read from
+  `/proc/<pid>/smaps_rollup` while the compiler runs. PSS is the RFC
+  memory metric; RSS is recorded only as `rss_max_kb_secondary` for
+  cross-checking. Polling at a fixed interval gives a lower bound on
+  the true peak.
+- **`bmi_bytes`** — bytes of the emitted reduced BMI (the modmap's
+  `-fmodule-output=*.pcm`). Across ~N importers this is the fan-out
+  cost; compare kB/ratios, not exact bytes (PCMs carry small timestamp
+  noise).
+- **`object_bytes`** and **producer wall time**.
+
+```bash
+# configure once so compile_commands.json + .modmap + prerequisite PCMs exist
+cmake --build --preset local-linux
+
+# human-readable
+python3 tools/arch/measure_bmi.py src/query/query_engine.cppm
+python3 tools/arch/measure_bmi.py mcp/client.cppm        # unique path suffix
+python3 tools/arch/measure_bmi.py --runs 3 --interval-ms 10 query_engine
+python3 tools/arch/measure_bmi.py --mode ninja --force query_engine
+
+# machine-readable, written to a file for before/after evidence
+python3 tools/arch/measure_bmi.py --json --out /tmp/before.json src/...
+```
+
+`<source>` accepts a repo-relative path, a unique path suffix
+(`mcp/client.cppm` disambiguates the three `client.cppm` files), or a
+unique basename/stem (`query_engine`); an ambiguous shorthand exits 2
+and lists the candidates.
+
+Canonical **pre/post** recipe for a body-extraction batch (same box,
+same preset, no concurrent ninja/ctest):
+
+```bash
+python3 tools/arch/measure_bmi.py --json --out /tmp/before.json <mod>
+# … make the split, rebuild …
+python3 tools/arch/measure_bmi.py --json --out /tmp/after.json  <mod>
+ninja -C build/debug   # restore the canonical object/BMI afterward
+```
+
+`--mode direct` (default) execs the compile argv with the build dir as
+cwd and samples the producer PID directly; `--mode ninja` rebuilds the
+target through `ninja` (no `-j` is ever passed — default parallelism is
+preserved) and sums matching `clang++` PIDs, useful when prerequisite
+PCMs must be rebuilt first.
+
+**Linux-only.** On non-Linux the tool exits `3`: PSS has no
+`/proc` equivalent, and RSS must not be substituted. macos-14 evidence
+is the CI build/step wall time at default Ninja parallelism. This tool
+is deliberately **not** run in `arch-check.yml` (that workflow stays a
+fast, Linux static-lint gate).
