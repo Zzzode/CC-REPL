@@ -31,27 +31,56 @@ jobs:
 
       - name: Install dependencies
         run: |
-          brew install cmake ninja llvm@22 lld curl openssl
+          brew install cmake ninja llvm@22 lld curl openssl sccache
           echo "$(brew --prefix llvm@22)/bin" >> $GITHUB_PATH
           # clang resolves -fuse-ld=lld as <toolchain>/bin/ld64.lld; the lld
           # formula (23) ships the binary, llvm@22 does not, so link it in.
           ln -sf "$(brew --prefix lld)/bin/ld64.lld" \
                  "$(brew --prefix llvm@22)/bin/ld64.lld"
 
+      - name: Restore sccache
+        # RFC 0001 Phase E (OQ-5) named-module compiler cache. Verified on
+        # macos-14: sccache >=0.17 (cmake-4 quoted response/modmap aware),
+        # cold 0 hits (all 1185 cached, 0 non-cacheable) -> warm 100% hits
+        # (build 8m16s -> 1m33s); impl edit invalidates only the edited TU
+        # +downstream, a leaf interface edit invalidates its full importer
+        # closure, zero stale hits. Requires >=0.17; the distro 0.4.0-pre.6
+        # is unsafe and must never be used.
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/sccache
+          key: macos14-sccache-${{ runner.os }}-llvm22-${{ hashFiles('CMakeLists.txt','CMakePresets.json','cmake/**','src/cmake/**') }}
+          restore-keys: |
+            macos14-sccache-${{ runner.os }}-llvm22-
+
       - name: Verify tool versions
+        env:
+          SCCACHE_DIR: ${{ runner.temp }}/sccache
+          SCCACHE_CACHE_SIZE: 5G
         run: |
           cmake --version
           ninja --version
           clang++ --version
           ld64.lld --version
+          sccache --version
+          # cmake 4 writes quoted response/modmap files; needs sccache >= 0.17
+          # (Homebrew ships 0.18). The distro 0.4.0-pre.6 is unsafe — never use it.
+          test "$(sccache --version | grep -oE '[0-9]+\.[0-9]+' | head -1 | cut -d. -f2)" -ge 17
+          sccache --start-server
+          sccache --zero-stats
 
       - name: Configure
+        env:
+          SCCACHE_DIR: ${{ runner.temp }}/sccache
+          SCCACHE_CACHE_SIZE: 5G
         run: |
           LLVM_PREFIX="$(brew --prefix llvm@22)"
           SDKROOT="$(xcrun --show-sdk-path)"
           cmake --preset debug \
             -DCMAKE_C_COMPILER="${LLVM_PREFIX}/bin/clang" \
             -DCMAKE_CXX_COMPILER="${LLVM_PREFIX}/bin/clang++" \
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache \
             -DCMAKE_CXX_FLAGS="-isysroot ${SDKROOT} -isystem ${LLVM_PREFIX}/include/c++/v1 -isystem ${SDKROOT}/usr/include" \
             -DCMAKE_CXX_FLAGS_DEBUG="-g0" \
             -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld -L${LLVM_PREFIX}/lib/c++ -Wl,-rpath,${LLVM_PREFIX}/lib/c++ -L${SDKROOT}/usr/lib"
@@ -61,12 +90,17 @@ jobs:
         # Ninja default parallelism (= host CPU count via the compile_jobs
         # pool in CMakeLists.txt). -g0 trims per-clang memory so the 14GB
         # runner tolerates several heavy module compiles at once.
-        # The heavy app-closure TUs were split (app.cppm BMI 7.9GB->4.4GB
-        # PSS, test_ui_runtime split by closure); 120 min is the measured
-        # cold-build wall time on the 3-vCPU runner — steady ~4-min heavy TUs
-        # 2-3 wide, no swap stalls (verified against the 10+ min frozen tails
-        # of earlier runs), just a 3-core CPU bound.
+        # sccache is transparent to the scan/compile/link pools; no -j change.
+        env:
+          SCCACHE_DIR: ${{ runner.temp }}/sccache
+          SCCACHE_CACHE_SIZE: 5G
         run: cmake --build --preset debug
+
+      - name: sccache stats
+        if: always()
+        env:
+          SCCACHE_DIR: ${{ runner.temp }}/sccache
+        run: sccache --show-stats
 
       - name: Test
         timeout-minutes: 20
