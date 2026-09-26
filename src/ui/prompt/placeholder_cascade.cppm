@@ -16,7 +16,6 @@
 ///   L0. showPromptSuggestion && promptSuggestion  → promptSuggestion (AI override)
 ///
 /// Rendering (renderPlaceholder.ts):
-///   - hidePlaceholderText + cursor + focus → invert(' ')  (cursor block only)
 ///   - cursor + focus + terminalFocus      → invert(placeholder[0]) + dim(rest)
 ///   - no cursor / no focus                → dim(full placeholder)
 ///   - value.length === 0 && placeholder   → showPlaceholder = true
@@ -215,8 +214,6 @@ struct RenderedPlaceholder {
 /// @param show_cursor  Whether the cursor block should be visible.
 /// @param focused      Whether the input widget has focus.
 /// @param terminal_focus  Whether the terminal itself is focused.
-/// @param hide_text    When true, hide placeholder text and show only cursor
-///                     (used in voice recording mode — TS hidePlaceholderText).
 /// @param prefix       Optional prefix text to prepend (e.g. "❯ ").
 /// @param prefix_color Optional color for the prefix glyph.
 [[nodiscard]] inline RenderedPlaceholder RenderPlaceholder(
@@ -225,7 +222,6 @@ struct RenderedPlaceholder {
     bool show_cursor,
     bool focused,
     bool terminal_focus = true,
-    bool hide_text = false,
     std::string_view prefix = "",
     std::optional<Color> prefix_color = std::nullopt) {
 
@@ -235,7 +231,7 @@ struct RenderedPlaceholder {
     const bool show_placeholder = value.empty() && has_text;
 
     // If nothing to show at all, return empty.
-    if (!show_placeholder && !hide_text) {
+    if (!show_placeholder) {
         return {std::nullopt, false};
     }
 
@@ -251,15 +247,7 @@ struct RenderedPlaceholder {
     }
 
     // TS REF: renderPlaceholder.ts:27-43
-    if (hide_text) {
-        // TS REF: renderPlaceholder.ts:28-31
-        // Voice recording: show only the cursor, no placeholder text.
-        if (show_cursor && focused && terminal_focus) {
-            ph_parts.push_back(ftxui::text(" ") | inverted |
-                               color(Color::White));
-        }
-        // else: empty string, nothing to render
-    } else if (show_cursor && focused && terminal_focus) {
+    if (show_cursor && focused && terminal_focus) {
         // TS REF: renderPlaceholder.ts:36-41
         // Invert first character (declared cursor) + dim the rest.
         const auto [first_ch, byte_len] = FirstUtf8Codepoint(*placeholder);

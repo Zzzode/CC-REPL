@@ -1870,32 +1870,6 @@ TEST(RenderPlaceholder, NoCursor_DimsFullText) {
     EXPECT_TRUE(result.element.has_value());
 }
 
-TEST(RenderPlaceholder, HideTextWithCursor_ShowsOnlyCursorBlock) {
-    auto result = ph::RenderPlaceholder(
-        /*placeholder=*/std::string_view("Type here"),
-        /*value=*/"",
-        /*show_cursor=*/true,
-        /*focused=*/true,
-        /*terminal_focus=*/true,
-        /*hide_text=*/true);
-    EXPECT_TRUE(result.show_placeholder);
-    EXPECT_TRUE(result.element.has_value());
-}
-
-TEST(RenderPlaceholder, HideTextNoCursor_NoElement) {
-    auto result = ph::RenderPlaceholder(
-        /*placeholder=*/std::string_view("Type here"),
-        /*value=*/"",
-        /*show_cursor=*/false,
-        /*focused=*/false,
-        /*terminal_focus=*/true,
-        /*hide_text=*/true);
-    // show_placeholder is true (value empty + placeholder exists), but
-    // no element is produced because hide_text + no cursor = empty string.
-    EXPECT_TRUE(result.show_placeholder);
-    EXPECT_FALSE(result.element.has_value());
-}
-
 TEST(RenderPlaceholder, WithPrefix_IncludesPrefix) {
     auto result = ph::RenderPlaceholder(
         /*placeholder=*/std::string_view("Type here"),
@@ -1903,7 +1877,6 @@ TEST(RenderPlaceholder, WithPrefix_IncludesPrefix) {
         /*show_cursor=*/true,
         /*focused=*/true,
         /*terminal_focus=*/true,
-        /*hide_text=*/false,
         /*prefix=*/"❯ ");
     EXPECT_TRUE(result.show_placeholder);
     EXPECT_TRUE(result.element.has_value());
@@ -1943,7 +1916,6 @@ TEST(RenderPlaceholder, ScreenRender_CursorFocused_InvertsFirstChar) {
         /*show_cursor=*/true,
         /*focused=*/true,
         /*terminal_focus=*/true,
-        /*hide_text=*/false,
         /*prefix=*/"");
     ASSERT_TRUE(result.element.has_value());
 
@@ -1966,25 +1938,6 @@ TEST(RenderPlaceholder, ScreenRender_NoCursor_ShowsDimPlaceholder) {
     ftxui::Render(screen, *result.element);
     std::string rendered = screen.ToString();
     EXPECT_FALSE(rendered.empty());
-}
-
-TEST(RenderPlaceholder, HideTextScreenRender_ShowsCursorBlock) {
-    auto result = ph::RenderPlaceholder(
-        /*placeholder=*/std::string_view("Recording..."),
-        /*value=*/"",
-        /*show_cursor=*/true,
-        /*focused=*/true,
-        /*terminal_focus=*/true,
-        /*hide_text=*/true);
-    ASSERT_TRUE(result.element.has_value());
-
-    ftxui::Screen screen(10, 1);
-    ftxui::Render(screen, *result.element);
-    std::string rendered = screen.ToString();
-    // Should show a space (the cursor block), not the placeholder text.
-    EXPECT_FALSE(rendered.empty());
-    // The rendered output should NOT contain "Recording".
-    EXPECT_TRUE(rendered.find("Recording") == std::string::npos);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

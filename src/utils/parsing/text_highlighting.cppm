@@ -212,7 +212,6 @@ struct TextSegment {
 /// PromptInput.tsx.  Higher values win overlap resolution.
 /// TS REF: src/components/PromptInput/PromptInput.tsx:601-741
 namespace highlight_priority {
-    inline constexpr std::int32_t VoiceInterim    = 1;   // dim interim voice text
     inline constexpr std::int32_t SlashCommand    = 5;   // /command blue
     inline constexpr std::int32_t TokenBudget     = 5;   // token budget blue
     inline constexpr std::int32_t SlackChannel    = 5;   // #channel blue

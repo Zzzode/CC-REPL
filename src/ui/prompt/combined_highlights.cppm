@@ -1,7 +1,7 @@
 /// @file combined_highlights.cppm
-/// @brief 8-tier combined highlights builder for the prompt input widget.
+/// @brief 7-tier combined highlights builder for the prompt input widget.
 ///
-/// Assembles TextHighlight annotations from 8+ sources in priority order,
+/// Assembles TextHighlight annotations from 7 sources in priority order,
 /// mirroring the TS combinedHighlights useMemo in PromptInput.tsx:601-741.
 ///
 /// Sources (highest priority first):
@@ -12,7 +12,6 @@
 ///   5. Slash command (priority 5)
 ///   6. Token budget (priority 5)
 ///   7. Member mention (priority 5)
-///   8. Voice interim dim (priority 1)
 ///
 /// TS REF (authority):
 ///   src/components/PromptInput/PromptInput.tsx:601-741 (combinedHighlights builder)
@@ -100,13 +99,6 @@ struct CombinedHighlightContext {
     /// True when history search failed (no match — don't highlight).
     /// TS REF: PromptInput.tsx historyFailedMatch
     bool history_failed_match = false;
-
-    // ── Voice interim ─────────────────────────────────────────────────────
-
-    /// Range of voice interim text (start, end) in the text buffer.
-    /// When set, the range is rendered dimmed.
-    /// TS REF: PromptInput.tsx:675-683 voiceInterimRange
-    std::optional<std::pair<std::size_t, std::size_t>> voice_interim_range;
 
     // ── Member mentions ───────────────────────────────────────────────────
 
@@ -513,43 +505,28 @@ inline void add_rainbow_shimmer_highlights(
         }
     }
 
-    // ── 7. Voice interim highlights (dim) ───────────────────────────────
-    // TS REF: PromptInput.tsx:675-683
-    if (ctx.voice_interim_range) {
-        auto [vstart, vend] = *ctx.voice_interim_range;
-        highlights.push_back(TextHighlight{
-            .start = vstart,
-            .end = vend,
-            .color = std::nullopt,
-            .dim = true,
-            .inverse = false,
-            .shimmer_color = std::nullopt,
-            .priority = highlight_priority::VoiceInterim
-        });
-    }
-
-    // ── 8. Rainbow shimmer highlights for ultrathink ────────────────────
+    // ── 7. Rainbow shimmer highlights for ultrathink ────────────────────
     // TS REF: PromptInput.tsx:686-698
     if (ctx.ultrathink_enabled) {
         auto think_triggers = find_keyword_triggers(ctx.text, "ultrathink");
         add_rainbow_shimmer_highlights(highlights, think_triggers);
     }
 
-    // ── 9. Rainbow shimmer highlights for ultraplan ─────────────────────
+    // ── 8. Rainbow shimmer highlights for ultraplan ─────────────────────
     // TS REF: PromptInput.tsx:700-713
     if (ctx.ultraplan_enabled) {
         auto ultraplan_triggers = find_keyword_triggers(ctx.text, "ultraplan");
         add_rainbow_shimmer_highlights(highlights, ultraplan_triggers);
     }
 
-    // ── 10. Rainbow shimmer highlights for ultrareview ──────────────────
+    // ── 9. Rainbow shimmer highlights for ultrareview ──────────────────
     // TS REF: PromptInput.tsx:715-726
     if (ctx.ultrareview_enabled) {
         auto ultrareview_triggers = find_keyword_triggers(ctx.text, "ultrareview");
         add_rainbow_shimmer_highlights(highlights, ultrareview_triggers);
     }
 
-    // ── 11. Rainbow shimmer highlights for /buddy ───────────────────────
+    // ── 10. Rainbow shimmer highlights for /buddy ───────────────────────
     // TS REF: PromptInput.tsx:728-739
     if (ctx.buddy_enabled) {
         // TS pattern: /\/buddy\b/g

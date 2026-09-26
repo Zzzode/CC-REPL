@@ -669,7 +669,6 @@ enum class GlimmerStyle : std::uint8_t {
     Default,
     ThinkingPlaceholder,
     ToolWaiting,
-    VoiceTranscribing,
 };
 
 namespace detail_gl {
@@ -717,8 +716,6 @@ style_meta(GlimmerStyle s) {
             return {"🤖", "Thinking…"};
         case GlimmerStyle::ToolWaiting:
             return {"🔧", "Waiting for tool result…"};
-        case GlimmerStyle::VoiceTranscribing:
-            return {"🎙", "Transcribing audio…"};
         default:
             return {"✨", "Generating response…"};
     }

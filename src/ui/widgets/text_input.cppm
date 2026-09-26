@@ -163,11 +163,6 @@ struct TextInputOptions {
     /// terminals to swap pure white for bright-green/cyan.
     bool prefix_bold = true;
 
-    /// When true, hide the placeholder text and show only the cursor block.
-    /// TS REF: src/hooks/renderPlaceholder.ts hidePlaceholderText prop.
-    /// Used by voice recording mode to show a solid cursor without text.
-    bool hide_placeholder_text = false;
-
     /// Whether the terminal itself has focus (not just the widget).
     /// TS REF: src/hooks/renderPlaceholder.ts terminalFocus prop.
     /// Controls whether the first-character cursor inversion is applied.

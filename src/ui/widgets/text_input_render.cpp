@@ -339,7 +339,6 @@ Element TextInputImpl::RenderInputArea() {
     // --- Placeholder rendering for empty input ---
     // Delegated to cc::ui::placeholder::RenderPlaceholder which faithfully
     // ports TS renderPlaceholder.ts + BaseTextInput.tsx lines 91-112:
-    //   * hide_text + cursor+focus+terminalFocus → invert(' ') only
     //   * cursor+focus+terminalFocus → invert(placeholder[0]) + dim(rest)
     //   * no cursor / no focus     → dim(full placeholder)
     //   * value empty + has text   → showPlaceholder = true
@@ -361,15 +360,13 @@ Element TextInputImpl::RenderInputArea() {
             /*show_cursor=*/blink_visible_,
             /*focused=*/blink_visible_,
             /*terminal_focus=*/options_.terminal_focus,
-            /*hide_text=*/options_.hide_placeholder_text,
             /*prefix=*/options_.prefix,
             /*prefix_color=*/options_.prefix_color);
 
         if (rendered.element.has_value()) {
             return *std::move(rendered.element);
         }
-        // Fallback: if nothing rendered (e.g. hide_text without cursor),
-        // show an empty prefix line to maintain layout.
+        // Fallback: show an empty prefix line to maintain layout.
         return ftxui::text(options_.prefix);
     }
 

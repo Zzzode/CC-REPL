@@ -1,8 +1,8 @@
 /// @file text_input_widget.cppm
 /// @brief Full-featured text input with multi-line editing, vim mode,
-/// placeholder, history, voice waveform cursor, and priority-based
+/// placeholder, history, and priority-based
 /// combined highlights.  Migrated from:
-///   src/components/TextInput.tsx          – cursor invert, voice waveform
+///   src/components/TextInput.tsx          – cursor invert
 ///   src/components/BaseTextInput.tsx      – cursor filtering, viewport adjust
 ///   src/components/PromptInput/ShimmeredInput.tsx – HighlightedInput segment render
 ///   src/utils/textHighlighting.ts         – TextHighlight, segmentTextByHighlights
@@ -55,13 +55,6 @@ using cc::ui::prompt::build_combined_highlights;
 // "Disabled" is now expressed as std::optional<VimMode>{nullopt}.
 using cc::ui::common::VimMode;
 
-/// Voice input state
-enum class VoiceState : std::uint8_t {
-    Idle,
-    Recording,
-    Processing,
-};
-
 /// Cursor position in a multi-line buffer
 struct CursorPos {
     int line = 0;
@@ -106,13 +99,6 @@ struct TextInputWidgetOptions {
     /// take priority on overlap via the segmenter's priority resolution).
     /// TS REF: src/components/PromptInput/PromptInput.tsx:601-741
     std::optional<CombinedHighlightContext> combined_ctx;
-};
-
-/// Audio level data for voice waveform cursor
-struct AudioWaveformData {
-    std::vector<float> levels;      // 0.0 - 1.0
-    bool is_recording = false;
-    float silence_threshold = 0.15f;
 };
 
 // ============================================================
@@ -294,33 +280,6 @@ private:
 };
 
 // ============================================================
-// Waveform Rendering
-// ============================================================
-
-/// Render voice waveform cursor
-[[nodiscard]] inline Element RenderWaveformCursor(
-    const AudioWaveformData& audio,
-    [[maybe_unused]] std::chrono::steady_clock::time_point start_time) {
-
-    if (!audio.is_recording || audio.levels.empty()) {
-        return text(" ") | inverted | color(Color::White);
-    }
-
-    // Block characters for waveform bars
-    static constexpr std::array<const char*, 9> bars =
-        {" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"};
-
-    float level = audio.levels.back();
-    bool is_silent = level < audio.silence_threshold;
-
-    int bar_idx = std::clamp(
-        static_cast<int>(std::round(level * 8.0f)), 1, 8);
-
-    auto clr = is_silent ? Color::GrayDark : Color::CyanLight;
-    return text(bars[bar_idx]) | color(clr) | bold;
-}
-
-// ============================================================
 // Highlighted Line Rendering
 // ============================================================
 
@@ -465,7 +424,6 @@ struct LinePart {
             /*show_cursor=*/focused,
             /*focused=*/focused,
             /*terminal_focus=*/true,
-            /*hide_text=*/false,
             /*prefix=*/opts.prefix,
             /*prefix_color=*/Color::Green);
 
