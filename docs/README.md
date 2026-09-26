@@ -18,6 +18,7 @@ current documentation.
 | File | Status |
 |---|---|
 | [`rfcs/0001-module-architecture-target.md`](rfcs/0001-module-architecture-target.md) | **Proposed.** Target module architecture for Loom: declaration-only interfaces, `import std;` + single FTXUI wrapper module, breaking the UI9/Core8 directory SCCs, dissolving the `cc.utils` junk drawer, and (last) UI state sharding. Based on the 2026-09-23 graph audit (849 modules, zero module-level cycles, 816/850 interfaces carrying bodies). |
+| [`rfcs/0002-ui-state-sharding-and-ui9-break.md`](rfcs/0002-ui-state-sharding-and-ui9-break.md) | **Provisional.** RFC 0001 Phase F follow-up: sever the measured 9-area UI SCC (219 modules, 32 area back edges) via type sinks, registry inversion and `ReplScreenState` sharding, then split `cc_ui` into ~12 acyclic libraries. Implementation gated on RFC 0001 Phase B + E and this RFC's acceptance. Edge inventory in `rfcs/attachments/0002-ui9-edge-inventory.md`. |
 
 | File | Status |
 |---|---|
