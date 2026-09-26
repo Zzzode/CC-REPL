@@ -64,7 +64,8 @@ jobs:
           ld64.lld --version
           sccache --version
           # cmake 4 writes quoted response/modmap files; needs sccache >= 0.17
-          # (Homebrew ships 0.18). The distro 0.4.0-pre.6 is unsafe — never use it.
+          # (the gate below enforces it). The distro 0.4.0-pre.6 is unsafe —
+          # never use it.
           test "$(sccache --version | grep -oE '[0-9]+\.[0-9]+' | head -1 | cut -d. -f2)" -ge 17
           sccache --start-server
           sccache --zero-stats
