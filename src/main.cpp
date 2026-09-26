@@ -27,6 +27,7 @@ import cc.types.command;
 import cc.commands.command;
 import cc.commands.registry;
 import cc.commands.mcp.core_settings_loader;
+import cc.bootstrap.mcp_connectivity;
 import cc.constants.product;
 import cc.services.api.session_ingress;
 import cc.utils.session_storage;
@@ -1801,6 +1802,14 @@ int main(int argc, const char* argv[]) {
     // (runtime-tool fallback, dynamic tool/input-schema providers, and the
     // in-process server routes all run in this one binary).
     cc::commands::install_core_settings_mcp_loader();
+
+    // RFC-0001 B7: install the MCP-connectivity snapshot-sink bridge
+    // immediately after the B4 loader. Same domination argument — every
+    // NativeMcpRuntime::all_statuses() path (runtime-tool fallback, daemon
+    // modes, dynamic providers, in-process server routes) runs after this
+    // point in the one binary. INTERIM: the old in-runtime hook projection
+    // still runs too (identical double-publish) until the B8 atomic cut.
+    cc::bootstrap::mcp_connectivity::wire_mcp_connectivity();
 
     // Resolve leader/teammate identity from the environment just exported by
     // apply_teammate_environment and the canonical <team>/config.json (see

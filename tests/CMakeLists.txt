@@ -583,6 +583,7 @@ target_link_libraries(test_fix_notifs
         cc_core
         cc_hooks
         cc_services
+        cc_bootstrap
         GTest::gtest_main
 )
 gtest_discover_tests(test_fix_notifs DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
