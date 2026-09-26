@@ -11,9 +11,6 @@ cc.config.config -> cc.utils.json
 cc.config.settings -> cc.utils.json
 cc.hooks.remaining_notifs -> cc.services.mcp.connection_manager
 cc.hooks.remaining_notifs -> cc.services.mcp.types
-cc.hooks.voice_hooks -> cc.services.voice.keyterms
-cc.hooks.voice_hooks -> cc.services.voice.voice
-cc.hooks.voice_hooks -> cc.services.voice_stream_stt
 cc.services.streaming_executor -> cc.tools.tool
 #
 # --- pre-RFC backlog (not scheduled by RFC 0001) ---

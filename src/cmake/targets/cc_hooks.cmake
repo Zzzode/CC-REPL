@@ -39,7 +39,6 @@ target_sources(cc_hooks
         hooks/typeahead.cppm
         hooks/vim_input.cppm
         hooks/virtual_scroll.cppm
-        hooks/voice_hooks.cppm
         hooks/swarm_permission_poller.cppm
         hooks/permission_resolver.cppm
         hooks/tool_permission_gate.cppm

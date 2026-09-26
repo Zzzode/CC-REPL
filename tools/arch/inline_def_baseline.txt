@@ -4,7 +4,6 @@
 # decreases shrink this file in the same split commit. c1 = must reach <30
 # when that module's batch merges; c2-done = <=100 cap now enforced.
 cc.tools.mcp 76
-cc.hooks.voice_hooks 75
 cc.daemon.daemon_server 73
 cc.ui.permissions.rule_list 67
 cc.skills.load_skills_dir 66
