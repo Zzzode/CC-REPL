@@ -70,3 +70,5 @@ std::optional<JsonVal> JsonVal::get_object(std::string_view key) const noexcept 
 }
 
 } // namespace cc::utils::json
+
+// sccache invalidation pilot marker (removed after) — touch a body-only impl unit.
