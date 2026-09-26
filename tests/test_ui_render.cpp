@@ -16,7 +16,6 @@
 
 import std;
 import cc.ui.screens.repl_screen;
-import cc.ui.prompt.voice_indicator;
 
 namespace {
 namespace fs = std::filesystem;
@@ -274,119 +273,6 @@ TEST(ReplScreen, BridgeStatusPillReflectsProjectionState) {
     auto disabled = strip_ansi(render_to_plain_text(
         repl::RenderReplScreen(state), 120, 30));
     EXPECT_EQ(disabled.find("Remote Control"), std::string::npos);
-}
-
-
-TEST(ReplScreen, VoiceFooterIndicatorProjectsAcrossStates) {
-    namespace repl = cc::ui::repl_screen;
-
-    // TS REF: src/components/PromptInput/VoiceIndicator.tsx:44-72
-    //   recording -> <Text dimColor>listening…</Text>
-    //   processing -> <ProcessingShimmer/> ("Voice: processing…")
-    //   idle -> null (renders nothing)
-    // and Notifications.tsx NotificationContent:283-285 (voice replaces
-    // every other notification while recording/processing).
-    // The ellipsis is U+2026 (UTF-8 E2 80 A6), byte-for-byte with TS.
-    static constexpr const char* kListeningEllipsis =
-        "listening\xE2\x80\xA6";
-    static constexpr const char* kProcessingEllipsis =
-        "Voice: processing\xE2\x80\xA6";
-
-    const auto render = [](repl::ReplScreenState& s) {
-        return strip_ansi(
-            render_to_plain_text(repl::RenderReplScreen(s), 120, 30));
-    };
-
-    repl::ReplScreenState state;
-    state.app_version = "9.9.9-test";
-    state.model_display_name = "GLM-5.2";
-    state.cwd = "/tmp/cpp_migration";
-
-    // Visibility helper: Idle is invisible (TS returns null).
-    EXPECT_FALSE(cc::ui::prompt::VoiceIndicatorVisible(
-        cc::ui::prompt::FooterVoiceState::Idle));
-    EXPECT_TRUE(cc::ui::prompt::VoiceIndicatorVisible(
-        cc::ui::prompt::FooterVoiceState::Listening));
-    EXPECT_TRUE(cc::ui::prompt::VoiceIndicatorVisible(
-        cc::ui::prompt::FooterVoiceState::Processing));
-
-    // (1) Idle renders neither string and holds no processing anchor.
-    auto idle = render(state);
-    EXPECT_EQ(idle.find(kListeningEllipsis), std::string::npos);
-    EXPECT_EQ(idle.find("Voice: processing"), std::string::npos);
-    EXPECT_FALSE(state.voice_processing_since.has_value());
-
-    // (2) Listening shows exactly the dim "listening…" label and never the
-    // processing label.
-    repl::ProjectVoiceFooterStatus(
-        state, cc::ui::prompt::FooterVoiceState::Listening);
-    auto listening = render(state);
-    EXPECT_NE(listening.find(kListeningEllipsis), std::string::npos);
-    EXPECT_EQ(listening.find("Voice: processing"), std::string::npos);
-    EXPECT_FALSE(state.voice_processing_since.has_value());
-
-    // (3) Processing shows exactly "Voice: processing…" and not
-    // "listening" — mutual exclusivity from the TS early-return.  The
-    // transition stamps the pulse anchor.
-    repl::ProjectVoiceFooterStatus(
-        state, cc::ui::prompt::FooterVoiceState::Processing);
-    auto processing = render(state);
-    EXPECT_NE(processing.find(kProcessingEllipsis), std::string::npos);
-    // ASCII-prefix fallback so the assertion is robust to ellipsis
-    // encoding mishaps in the test harness.
-    EXPECT_NE(processing.find("Voice: processing"), std::string::npos);
-    EXPECT_EQ(processing.find("listening"), std::string::npos);
-    EXPECT_TRUE(state.voice_processing_since.has_value());
-
-    // (4) Back to Idle clears both the glyphs and the anchor; the footer
-    // must be byte-identical to the original idle render for the voice
-    // rows (indicator renders zero rows).
-    repl::ProjectVoiceFooterStatus(
-        state, cc::ui::prompt::FooterVoiceState::Idle);
-    auto back_to_idle = render(state);
-    EXPECT_EQ(back_to_idle.find(kListeningEllipsis), std::string::npos);
-    EXPECT_EQ(back_to_idle.find("Voice: processing"), std::string::npos);
-    EXPECT_FALSE(state.voice_processing_since.has_value());
-}
-
-
-TEST(ReplScreen, VoiceIndicatorRequiresEnabledAndPreemptsNotifications) {
-    namespace repl = cc::ui::repl_screen;
-    static constexpr const char* kCompeting = "COMPETING_NOTIFICATION_XYZ";
-    static constexpr const char* kListeningEllipsis =
-        "listening\xE2\x80\xA6";
-
-    auto make_state = [] {
-        auto s = std::make_shared<repl::ReplScreenState>();
-        s->app_version = "9.9.9-test";
-        s->model_display_name = "GLM-5.2";
-        s->cwd = "/tmp/cpp_migration";
-        s->footer_dynamic_text = kCompeting;
-        return s;
-    };
-
-    // voice_enabled=false: an active status alone must NOT reveal the
-    // indicator (TS voiceEnabled gate); the competing notification shows.
-    {
-        auto s = make_state();
-        s->voice_footer_status = cc::ui::prompt::FooterVoiceState::Listening;
-        // enabled deliberately left false
-        auto out = strip_ansi(
-            render_to_plain_text(repl::RenderReplScreen(*s), 120, 30));
-        EXPECT_EQ(out.find(kListeningEllipsis), std::string::npos);
-        EXPECT_NE(out.find(kCompeting), std::string::npos);
-    }
-    // enabled + Listening: voice early-returns and REPLACES the competing
-    // notification (Notifications.tsx:283-285).
-    {
-        auto s = make_state();
-        repl::ProjectVoiceFooterStatus(
-            *s, cc::ui::prompt::FooterVoiceState::Listening);
-        auto out = strip_ansi(
-            render_to_plain_text(repl::RenderReplScreen(*s), 120, 30));
-        EXPECT_NE(out.find(kListeningEllipsis), std::string::npos);
-        EXPECT_EQ(out.find(kCompeting), std::string::npos);
-    }
 }
 
 

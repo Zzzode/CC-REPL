@@ -44,7 +44,6 @@ import cc.state.store;
 import cc.query.query_engine;
 import cc.hooks.lifecycle_hooks;
 import cc.commands.command;
-import cc.ui.foundation.theme_provider;
 
 namespace cc::ui {
 
@@ -582,10 +581,6 @@ bool AppAdapter::ExecuteStatuslineCommand(std::string_view command,
     if (!result.success) return false;
     output = std::move(result.output);
     return true;
-}
-
-[[nodiscard]] bool reduced_motion_enabled() {
-    return cc::ui::design::theme::current_theme().a11y.reduced_motion;
 }
 
 }  // namespace cc::ui

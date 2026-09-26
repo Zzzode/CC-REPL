@@ -56,9 +56,6 @@ import cc.ui.foundation.design_tokens;
 import cc.ui.foundation.theme_provider;
 // Unified canonical PromptInputMode enum (replaces local 5-value definition).
 import cc.ui.foundation.ui_types;
-// TS-faithful voice footer indicator (VoiceIndicator.tsx), rendered by
-// RenderNotifications with the highest display priority.
-import cc.ui.prompt.voice_indicator;
 
 export namespace cc::ui::prompt::footer {
 
@@ -708,8 +705,7 @@ struct BridgeOptions {
 //
 // The Notifications component renders ONE notification at a time, chosen by
 // priority.  In TS the full priority chain is:
-//   voice indicator (highest, VOICE_MODE only)
-//   > IdeStatusIndicator
+//   IdeStatusIndicator (highest)
 //   > notifications.current (dynamic: env-hook, external-editor-hint, etc.)
 //   > overage mode
 //   > apiKeyHelper slow
@@ -718,12 +714,11 @@ struct BridgeOptions {
 //   > verbose token count
 //   > TokenWarning (context limit approaching)
 //   > AutoUpdater
-//   > voice error
 //   > MemoryUsageIndicator
 //   > SandboxPromptFooterHint (lowest)
 //
 // For the CPP faithful-port we implement the top user-visible items that
-// have data available.  Items requiring engine wiring (autoUpdater, voice,
+// have data available.  Items requiring engine wiring (autoUpdater,
 // memory, sandbox) are stubs that render nothing until data is provided.
 
 /// API key verification status.  Mirrors TS VerificationStatus (useApiKeyVerification.ts).
@@ -909,19 +904,6 @@ struct NotificationData {
     // Notification queue — priority-based rotating carousel of up to 12 items.
     // When queue.current is set, it takes highest priority in RenderNotifications.
     NotificationQueue queue;
-
-    // Voice footer indicator (TS REF: src/context/voice.ts voiceState
-    // 'idle'|'recording'|'processing', projected via
-    // repl::ProjectVoiceFooterStatus).  When Listening or Processing,
-    // RenderNotifications early-returns the VoiceIndicator INSTEAD of every
-    // other notification (Notifications.tsx NotificationContent:283-285).
-    cc::ui::prompt::FooterVoiceState voice_state =
-        cc::ui::prompt::FooterVoiceState::Idle;
-    // TS voiceEnabled gate (Notifications.tsx:283).
-    bool voice_enabled = false;
-    // Wall-clock seconds since the Processing transition; drives the 2s
-    // sine pulse (TS elapsedSec = time / 1000).  Ignored for other states.
-    double voice_processing_elapsed_sec = 0.0;
 };
 
 /// IDE status indicator color — matches TS theme.ide rgb(71,130,200).
@@ -1146,28 +1128,6 @@ namespace detail {
     using ftxui::hbox;
 
     // Priority chain (highest first):
-
-    // 0. Voice indicator — replaces every other notification while the
-    //    voice session is recording or processing.
-    //    TS REF: Notifications.tsx NotificationContent:283-285
-    //      if (voiceEnabled &&
-    //          (voiceState === 'recording' || voiceState === 'processing'))
-    //        return <VoiceIndicator voiceState={voiceState} />;
-    //    Idle falls through: TS idle renders null and must not add a row.
-    //    Reduced motion is read from the theme at render time (the CPP
-    //    port has no settings.prefersReducedMotion screen projection).
-    //    voice_enabled mirrors TS voiceEnabled (Notifications.tsx:283):
-    //    the indicator is suppressed entirely unless voice is enabled.
-    if (data.voice_enabled &&
-        (data.voice_state == cc::ui::prompt::FooterVoiceState::Listening ||
-         data.voice_state == cc::ui::prompt::FooterVoiceState::Processing)) {
-        const bool reduced =
-            cc::ui::design::theme::current_theme().a11y.reduced_motion;
-        return hbox({
-            cc::ui::prompt::RenderVoiceIndicator(
-                data.voice_state, data.voice_processing_elapsed_sec, reduced)
-        }) | size(HEIGHT, EQUAL, 1);
-    }
 
     // 1. Notification queue — current item (rotating carousel)
     //    TS REF: Notifications.tsx L288-292 (notifications.current render)
@@ -1799,11 +1759,6 @@ struct FooterOptions {
             nd.api_key_status == ApiKeyStatus::Missing ||
             nd.debug_mode ||
             (nd.verbose && nd.api_key_status == ApiKeyStatus::Valid && nd.token_usage > 0) ||
-            // Voice indicator (TS Notifications right-slot early return).
-            // TS Notifications lives in the right Box (alignItems flex-end);
-            // only non-idle voice state pushes a row, so Idle stays
-            // byte-identical and keeps the stable footer height.
-            (nd.voice_state != cc::ui::prompt::FooterVoiceState::Idle) ||
             // P1: typed notification pills (footer-notifications-stub)
             nd.auto_updater.has_value() ||
             nd.new_release.has_value() ||

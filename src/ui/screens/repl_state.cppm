@@ -21,7 +21,6 @@ import cc.ui.foundation.ui_types;                 // cc::ui::common::PromptInput
 import cc.ui.dialogs.system;                     // DialogQueue / payloads
 import cc.ui.chrome.fullscreen_layout;           // StickyPrompt
 import cc.ui.prompt.prompt_input_footer;         // footer::* projection types
-import cc.ui.prompt.voice_indicator;             // FooterVoiceState
 import cc.ui.messages.messages_list;             // UnseenDivider
 import cc.ui.messages.virtual_list;              // JumpHandle / VirtualListState
 import cc.ui.features.agents.agent_cards;        // AgentCardData
@@ -250,14 +249,7 @@ struct DialogContext {
     // Skill
     std::optional<std::string> skill_name;
     std::optional<std::string> skill_source;  // "bundled" / "user" / "plugin"
-};/// Screen projection of the TS voice context.
-/// TS REF: src/context/voice.tsx — voiceState is 'idle' | 'recording' |
-/// 'processing'.  The TS 'recording' value maps to FooterVoiceState::
-/// Listening (matching cc::context::VoiceState::Listening).  The future
-/// voice service (cc::hooks::voice) is the ONLY writer, via the
-/// ProjectVoiceFooterStatus seam below; the renderer is read-only.
-/// voiceError is a separate TS Notifications path and is not represented
-/// here.
+};
 ///
 /// Lean orchestration state.  Full app state lives in services/; the
 /// engine writes computed projections into this struct between frames.
@@ -561,20 +553,6 @@ struct ReplScreenState {
     // "Pasting text…" for 100ms after it. Event-driven — no ticker.
     std::optional<std::chrono::steady_clock::time_point> pasting_since;
 
-    // Voice footer indicator (TS REF: src/context/voice.tsx voiceState
-    // 'idle'|'recording'|'processing'; VoiceIndicator.tsx).  Written only
-    // via ProjectVoiceFooterStatus.  voice_processing_since stamps the
-    // Processing transition so the renderer can derive wall-clock elapsed
-    // seconds for the 2s sine pulse (same by-value timestamp pattern as
-    // pasting_since — no pointer lifetime).
-    cc::ui::prompt::FooterVoiceState voice_footer_status =
-        cc::ui::prompt::FooterVoiceState::Idle;
-    // TS Notifications.tsx:283 gates the indicator on voiceEnabled. The seam
-    // defaults to false (no voice service wired in production yet); the
-    // future voice service sets both this and the status together.
-    bool voice_enabled = false;
-    std::optional<std::chrono::steady_clock::time_point> voice_processing_since;
-
     // TS REF: src/hooks/useTextInput.ts:126-153 handleEscape via
     // src/hooks/useDoublePress.ts:6 DOUBLE_PRESS_TIMEOUT_MS = 800.
     // First Esc on non-empty input arms (notification "Esc again to clear");
@@ -657,32 +635,6 @@ struct ReplScreenState {
     DialogQueue dialog_queue;
     DialogRendererRegistry dialog_renderers;
 };
-
-/// Single write seam for the voice footer projection.  The future voice
-/// service (cc::hooks::voice on_state_change / cc::context::VoiceState)
-/// calls this between frames; TS Error and Idle both project to Idle here.
-/// No voice_hooks/service wiring exists in this gap — only the seam and
-/// the read-only renderer.  Entering Processing stamps the wall-clock
-/// anchor used by the 2s sine pulse (TS ProcessingShimmer elapsedSec);
-/// leaving Processing clears it.  The renderer never mutates state.
-// TS REF: src/context/voice.tsx (voiceState transitions) and
-// VoiceIndicator.tsx:107 elapsedSec = time / 1000.
-inline void ProjectVoiceFooterStatus(
-    ReplScreenState& s, cc::ui::prompt::FooterVoiceState next) {
-    if (next == cc::ui::prompt::FooterVoiceState::Processing &&
-        s.voice_footer_status != cc::ui::prompt::FooterVoiceState::Processing) {
-        s.voice_processing_since = std::chrono::steady_clock::now();
-    } else if (next != cc::ui::prompt::FooterVoiceState::Processing) {
-        s.voice_processing_since.reset();
-    }
-    // Projecting an active state means a voice service is driving the UI,
-    // which implies voiceEnabled (TS Notifications.tsx:283). Idle does not
-    // disable — the service may simply not be recording.
-    if (next != cc::ui::prompt::FooterVoiceState::Idle) {
-        s.voice_enabled = true;
-    }
-    s.voice_footer_status = next;
-}
 
 /// Engine-facing callbacks (TS ReplScreen external prop callbacks).
 struct ReplScreenCallbacks {

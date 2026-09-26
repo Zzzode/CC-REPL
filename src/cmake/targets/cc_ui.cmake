@@ -172,7 +172,6 @@ target_sources(cc_ui
         ui/prompt/combined_highlights.cppm  # P1: 8-tier combined highlights builder
         ui/prompt/placeholder_cascade.cppm  # P1: 4-tier memoized placeholder cascade
         ui/prompt/vim_input.cppm
-        ui/prompt/voice_indicator.cppm
         ui/prompt/prompt_input.cppm
         ui/features/plugins/plugin_install_flow.cppm
         ui/features/plugins/plugin_manage_panel.cppm

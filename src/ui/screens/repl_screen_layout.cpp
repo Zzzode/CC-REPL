@@ -19,7 +19,6 @@ import cc.ui.chrome.fullscreen_layout;
 import cc.ui.foundation.logo_v2;
 import cc.ui.features.teams.live_teammates;
 import cc.ui.prompt.prompt_input_footer;
-import cc.ui.prompt.voice_indicator;
 import cc.ui.messages.virtual_list;
 import cc.ui.visual.markdown;
 
@@ -390,21 +389,6 @@ using namespace ftxui;
         {
             auto& nd = footer_opts.notification;
             nd.api_key_status = s.api_key_status;
-            // Voice indicator projection (TS Notifications.tsx
-            // NotificationContent early-return).  Elapsed seconds are
-            // wall-clock from the Processing transition anchor, matching
-            // TS ProcessingShimmer elapsedSec = time / 1000.
-            nd.voice_state = s.voice_footer_status;
-            nd.voice_enabled = s.voice_enabled;
-            nd.voice_processing_elapsed_sec = 0.0;
-            if (s.voice_footer_status ==
-                    cc::ui::prompt::FooterVoiceState::Processing &&
-                s.voice_processing_since) {
-                nd.voice_processing_elapsed_sec =
-                    std::chrono::duration<double>(
-                        std::chrono::steady_clock::now() -
-                        *s.voice_processing_since).count();
-            }
             nd.is_remote = s.is_remote_session;
             nd.debug_mode = s.debug_mode;
             nd.verbose = s.verbose;

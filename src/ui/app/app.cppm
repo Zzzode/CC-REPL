@@ -22,8 +22,6 @@ import cc.ui.widgets.components;
 import cc.ui.widgets.all_components;
 import cc.ui.visual.markdown;
 import cc.ui.screens.repl_state;
-// FooterVoiceState for the voice-processing animation gate below.
-import cc.ui.prompt.voice_indicator;
 import cc.ui.prompt.autocomplete_sources;
 // P0-2: 7-stage message pipeline utilities (dedup / tag filter / tool augment).
 import cc.ui.messages.message_pipeline;
@@ -232,10 +230,6 @@ project_messages(const Message& msg);
 // ============================================================
 
 [[nodiscard]] Element RenderMessage(const Message& msg);
-
-// Defined out-of-line (app_constructor.cpp) to keep the
-// cc.ui.foundation.theme_provider closure out of this interface.
-[[nodiscard]] bool reduced_motion_enabled();
 
 // ============================================================
 // App Adapter Component
@@ -514,25 +508,6 @@ private:
                 if (st.stop_requested()) break;
 
                 const bool query_active = query_running_.load();
-                // Voice "Voice: processing…" pulse must keep repainting at
-                // 50ms (TS useAnimationFrame(50) in ProcessingShimmer) even
-                // when no query is running — processing follows mic release
-                // and typically overlaps no running query.  Listening is
-                // static dim text and Idle renders nothing: neither ticks,
-                // preserving the static-idle fast path below.
-                // TS REF: VoiceIndicator.tsx:96 useAnimationFrame(
-                //   reducedMotion ? null : 50).
-                const bool voice_processing =
-                    screen_state_ &&
-                    screen_state_->voice_enabled &&
-                    screen_state_->voice_footer_status ==
-                        cc::ui::prompt::FooterVoiceState::Processing;
-                // TS VoiceIndicator.tsx:96 useAnimationFrame(reducedMotion ?
-                // null : 50): under reduced motion the processing shimmer is
-                // static, so do not keep repainting just for voice.
-                const bool voice_animates =
-                    voice_processing &&
-                    !reduced_motion_enabled();
                 const bool welcome_active =
                     screen_state_ &&
                     screen_state_->messages.empty() &&
@@ -540,11 +515,10 @@ private:
                 if (!welcome_active) welcome_render_ticks = 0;
 
                 // Re-render only while an animation is actually advancing:
-                // an active query (spinner), the voice-processing pulse, or
-                // the welcome-intro sweep.  At static idle we skip — no
-                // animation to drive.
-                if (query_active || voice_animates) {
-                    // spinner / voice-pulse animation: keep ticking
+                // an active query (spinner) or the welcome-intro sweep.
+                // At static idle we skip — no animation to drive.
+                if (query_active) {
+                    // spinner animation: keep ticking
                 } else if (welcome_active &&
                            welcome_render_ticks < kWelcomeIntroTicks) {
                     ++welcome_render_ticks;
