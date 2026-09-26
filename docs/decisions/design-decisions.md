@@ -773,11 +773,13 @@ promoted to the repository root in the same series of commits, so
 - **`cpp_migration/src/ui/prompt/prompt_input_footer.cppm:520`** — See above; the CPP-only
   enhancement is explicitly flagged so it is not mistaken for a fidelity bug.
 
-- **`cpp_migration/src/ui/prompt/prompt_input_footer.cppm:1152-1164`** — Notification priority chain,
-  highest first: the **voice indicator replaces every other notification** while the session is
-  recording or processing. Crucially, **idle falls through: TS idle renders `null` and must not add
-  a row**. `voice_enabled` mirrors TS `voiceEnabled` — the indicator is suppressed entirely unless
-  voice is enabled.
+- **`cpp_migration/src/ui/prompt/prompt_input_footer.cppm` (former `:1152-1164`)** — **REMOVED
+  2026-09-26** with the voice feature (RFC-0001 series B): the voice early-return, its
+  `voice_enabled` gate, and the NotificationData voice fields are gone, and RenderNotifications now
+  starts at the notification-queue step. Historical note: the voice indicator used to replace every
+  other notification while the session was recording or processing; idle fell through (TS idle
+  renders `null` and must not add a row), and `voice_enabled` mirrored the TS `voiceEnabled`
+  suppression. The string-shape hazard left the tree with the code.
 
 - **`cpp_migration/src/ui/prompt/prompt_input_footer.cppm:59`** — P0-1: the active theme provider is
   used for **bash-border consistency** (BUG-3 fix) so the prompt prefix and the footer's bash chrome
@@ -2871,8 +2873,9 @@ promoted to the repository root in the same series of commits, so
 - **`cpp_migration/src/ui/layout/fullscreen_layout.cppm:358-367`** — The notice ordering matches TS
   exactly; see A.9.
 
-- **`cpp_migration/src/ui/prompt/prompt_input_footer.cppm:1160`** — The voice-indicator priority is
-  mirrored from `Notifications.tsx`; "idle renders null and must not add a row."
+- **`cpp_migration/src/ui/prompt/prompt_input_footer.cppm` (former `:1160`)** — **REMOVED
+  2026-09-26** with the voice feature (RFC-0001 series B). Historical note: the voice-indicator
+  priority was mirrored from `Notifications.tsx` ("idle renders null and must not add a row");
 
 - **`cpp_migration/src/ui/prompt/placeholder_cascade.cppm:143-175`** — The cascade layers are numbered
   L1-L4 with TS line references; inserting a layer renumbers the rest.
