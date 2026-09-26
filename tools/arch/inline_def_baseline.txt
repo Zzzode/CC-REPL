@@ -29,7 +29,7 @@ cc.services.prompt_suggestion 37
 cc.ui.dialogs.mcp_dialogs 37
 cc.commands.mcp_cmd 33
 cc.ui.widgets.text_input_widget 33
-cc.ui.foundation.logo_v2 31
+cc.ui.foundation.logo_v2 30
 cc.ui.prompt.prompt_input_footer 30
 cc.utils.hooks_execution 29
 cc.ui.widgets.text_input 28 c2-done

@@ -127,8 +127,7 @@ TEST(LogoV2, CondensedModeRendersStripPlusNotices) {
     EXPECT_NE(s.find("Loom Opus 4.8"), std::string::npos);
     EXPECT_NE(s.find("Team Seat"), std::string::npos);
     EXPECT_NE(s.find("/home/alice/dev/loom"), std::string::npos);
-    // Aggregated notice stack — Voice + Opus1m always active.
-    EXPECT_NE(s.find("Voice mode enabled"), std::string::npos);
+    // Aggregated notice stack — Opus1m always active.
     EXPECT_NE(s.find("Opus now defaults to 1M context"), std::string::npos);
     EXPECT_NE(s.find("5x more room, same pricing"), std::string::npos);
     // Condensed path has NO rounded outer border — ╭ (U+256D) would appear if

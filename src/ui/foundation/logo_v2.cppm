@@ -5,7 +5,6 @@
 //   TS src/components/LogoV2/WelcomeV2.tsx        (433 lines)
 //   TS src/utils/statusNoticeDefinitions.tsx      (198 lines)
 //   TS src/components/LogoV2/Opus1mMergeNotice.tsx
-//   TS src/components/LogoV2/VoiceModeNotice.tsx
 //   TS src/components/LogoV2/ChannelsNotice.tsx   (feature-gated KAIROS/KAIROS_CHANNELS)
 //   TS src/components/LogoV2/EmergencyTip.tsx
 //   TS src/components/LogoV2/GuestPassesUpsell.tsx
@@ -157,27 +156,6 @@ inline const Color kMuted       (153, 153, 153);   // theme.inactive / dimColor 
 }
 
 } // namespace detail
-
-// --- 3a. VoiceModeNotice — always shown in current TS (static text).
-//     TS VoiceModeNotice.tsx renders as:
-//       <Box paddingLeft={2} flexDirection="column">
-//         <Text dimColor>
-//           ✻ voiceMode.active ? "Voice mode active" : "Voice mode enabled"
-//             · Press <Text bold>⌘⇧.</Text> to toggle
-//         </Text>
-//       </Box>
-//     We render the "enabled" variant (default); caller may override.
-[[nodiscard]] inline auto RenderVoiceModeNotice(bool active = false) -> Element {
-  using namespace detail;
-  return pad2(hbox({
-    text("\xE2\x9C\xBB ") | color(kLoomAccent) | bold,    // ✻ U+273B
-    text(active ? "Voice mode active" : "Voice mode enabled"),
-    text(" \xC2\xB7 "),
-    text("Press "),
-    text("\xE2\x8C\x98\xE2\x87\xA7.") | bold,        // ⌘⇧.
-    text(" to toggle"),
-  }) | dim | color(kMuted));
-}
 
 // --- 3b. Opus 1M notice — delegated to cc::ui::logo::RenderOpus1MNotice
 //     (already a faithful TS port).  Re-exported here for the flat stack.
@@ -354,7 +332,7 @@ template <bool KAIROS = false, bool KAIROS_CHANNELS = false>
 // --------------------------------------------------------------------
 // Mirrors TS LogoV2.tsx L187-237 (condensed stack) and L459-525
 // (compact/horizontal post-card stack). Order matters — it matches TS
-// exactly: Voice → Opus → Channels → Debug → Emergency → Tmux →
+// exactly: Opus → Channels → Debug → Emergency → Tmux →
 // OrgAnnounce → Sandbox → StatusNotices → Guest/Overage (upsells).
 //
 // (Note: GuestPasses/Overage appear inside CondensedLogo's right column
@@ -373,7 +351,6 @@ template <bool KAIROS = false, bool KAIROS_CHANNELS = false>
     // dereferences child pointers and null → UB / black screen.
     if (e) out.push_back(std::move(e));
   };
-  push(RenderVoiceModeNotice(false));
   push(RenderOpus1MNotice());
   push(RenderChannelsNotice<>());
   push(RenderDebugNotice(o));

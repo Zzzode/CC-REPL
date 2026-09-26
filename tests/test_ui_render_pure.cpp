@@ -217,20 +217,16 @@ TEST(ReplScreen, WelcomeHeaderAnimatesAsteriskColor) {
         16);
 
     // Phase 2 + P0-4 Faithful CondensedLogo: the welcome strip is a
-    // static 3-line logo + notice stack (Voice ✻ + Opus1m + gated rest).
+    // static 3-line logo + notice stack (Opus1m + gated rest).
     // There is NO per-frame asterisk animation — both frames must
-    // therefore render byte-for-byte identical.  The ✻ (U+273B) glyph
-    // comes from VoiceModeNotice (padded-left-2), which is static — that
-    // is the ONLY "asterisk-like" glyph allowed in the output; the old
-    // rotating `✦✧✶` spinner chars embedded inside the old ASCII-art
-    // card must NOT appear.
+    // therefore render byte-for-byte identical, and no "asterisk-like"
+    // glyph is allowed in the output; the old rotating `✦✧✶` spinner
+    // chars embedded inside the old ASCII-art card must NOT appear.
     EXPECT_EQ(frame0, frame8);
     // Sanity: condensed-logo branding + Opus1m body present.
     EXPECT_NE(strip_ansi(frame0).find("Loom"), std::string::npos);
     EXPECT_NE(strip_ansi(frame0).find("Opus now defaults to 1M context"),
               std::string::npos);
-    // VoiceModeNotice static glyph present (U+273B Teardrop-Spoked Asterisk).
-    EXPECT_NE(strip_ansi(frame0).find("\xE2\x9C\xBB"), std::string::npos);
     // Old rotating-spinner glyphs (✦ U+2726, ✧ U+2727, ✶ U+2736) must be
     // absent — these were the per-frame animation characters.
     EXPECT_EQ(strip_ansi(frame0).find("\xE2\x9C\xA6"), std::string::npos);  // ✦

@@ -1171,8 +1171,8 @@ auto make_synthetic_input(std::size_t num_rows,
 } // namespace unseen_divider_test
 
 // T1: Condensed mode (default is_condensed_mode = true) renders the 3-row
-//     CondensedLogo strip (Loom + version · model·billing · cwd), the
-//     Opus1M notice, and the VoiceMode notice.  The brand chip and FeedColumn
+//     CondensedLogo strip (Loom + version · model·billing · cwd) and the
+//     Opus1M notice.  The brand chip and FeedColumn
 //     / rounded border MUST NOT appear.
 TEST(MessagesList, UnseenDivider_PrefixMatchFindsTargetRow) {
     using namespace unseen_divider_test;
