@@ -19,7 +19,7 @@ cc.utils.team_helpers 48
 cc.ui.messages.virtual_list 47
 cc.utils.powershell_parser 47
 cc.server.server_main 46
-cc.utils.ide_integration 44
+cc.services.ide_integration 44
 cc.utils.swarm_helpers 42
 cc.tools.bash 41
 cc.ui.dialogs.system 41

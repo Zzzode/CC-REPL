@@ -11,7 +11,7 @@ import std;
 
 import cc.types.types;
 import cc.commands.command;
-import cc.utils.ide_integration;
+import cc.services.ide_integration;
 
 export namespace cc::commands {
 

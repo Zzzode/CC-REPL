@@ -16,8 +16,6 @@ cc.hooks.voice_hooks -> cc.services.voice.voice
 cc.hooks.voice_hooks -> cc.services.voice_stream_stt
 cc.services.streaming_executor -> cc.tools.tool
 cc.skills.bundled.debug -> cc.tools.tool
-cc.utils.ide_integration -> cc.services.mcp.client
-cc.utils.ide_integration -> cc.services.mcp.types
 #
 # --- pre-RFC backlog (not scheduled by RFC 0001) ---
 # Config migration code sits in the config layer and uses utils json/file

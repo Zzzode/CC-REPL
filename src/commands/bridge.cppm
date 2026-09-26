@@ -2,7 +2,7 @@ export module cc.commands.bridge;
 
 import std;
 
-import cc.utils.ide_integration;
+import cc.services.ide_integration;
 
 export namespace cc::commands::bridge {
 struct CommandResponse { bool ok{true}; std::string message; };

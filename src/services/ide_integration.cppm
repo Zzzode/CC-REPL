@@ -13,7 +13,7 @@ module;
 #include <sys/socket.h>
 #include <unistd.h>
 
-export module cc.utils.ide_integration;
+export module cc.services.ide_integration;
 
 import std;
 
