@@ -35,7 +35,6 @@ import std;
 
 import cc.ui.features.agents.agent_shared_widgets;
 import cc.tools.agent_color_manager;
-import cc.utils.swarm_backends;
 import cc.ui.widgets.spinner_animations;
 
 export namespace cc::ui::agents::cards {

@@ -122,7 +122,6 @@ cc.ui.dialogs.all_renderers -> cc.ui.dialogs.bottom_renderers
 cc.ui.dialogs.all_renderers -> cc.ui.dialogs.modal_renderers
 cc.ui.dialogs.default_renderers -> cc.ui.foundation.component_primitives
 cc.ui.dialogs.feature_dialogs -> cc.tools.agent_memory
-cc.ui.features.agents.agent_cards -> cc.utils.swarm_backends
 cc.ui.features.mcp.mcp_add_server_wizard -> cc.services.oauth.types
 cc.ui.features.teams.swarm_collaboration_view -> cc.ui.features.agents.agent_view
 cc.ui.features.teams.teams_overview -> cc.ui.features.agents.agent_view
