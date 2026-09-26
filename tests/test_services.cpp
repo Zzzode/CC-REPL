@@ -43,7 +43,6 @@ import cc.services.extract_memories;
 import cc.services.mcp.types;
 import cc.services.rate_limit;
 import cc.services.token_estimation;
-import cc.services.voice.voice;
 import cc.services.prompt_suggestion;
 import cc.server.server_routes;
 import cc.server.server_main;
@@ -3795,39 +3794,6 @@ TEST(ApiClient, ResponseCombinesTextContentAndTokenUsage) {
     EXPECT_EQ(response.get_text_content(), "hello world");
     EXPECT_EQ(response.usage.total(), 8);
     EXPECT_EQ(response.usage.total_with_cache(), 26);
-}
-
-TEST(VoiceService, TranscribesStreamThroughProvider) {
-    bool called = false;
-    cc::services::voice::VoiceService service(
-        [&](std::span<const std::uint8_t> audio) -> cc::utils::Result<std::string> {
-            called = true;
-            EXPECT_EQ(audio.size(), 3u);
-            EXPECT_EQ(audio[0], static_cast<std::uint8_t>('a'));
-            return std::string("hello transcript");
-        });
-
-    std::istringstream input("abc");
-    auto result = service.transcribe_stream(input);
-
-    ASSERT_TRUE(result.has_value());
-    EXPECT_TRUE(called);
-    EXPECT_TRUE(result->success);
-    EXPECT_EQ(result->text, "hello transcript");
-    EXPECT_FALSE(result->error.has_value());
-}
-
-TEST(VoiceService, ReportsMissingTranscriptionProvider) {
-    cc::services::voice::VoiceService service(cc::services::voice::VoiceService::TranscriptionProvider{});
-    std::istringstream input("abc");
-
-    auto result = service.transcribe_stream(input);
-
-    ASSERT_TRUE(result.has_value());
-    EXPECT_FALSE(result->success);
-    ASSERT_TRUE(result->error.has_value());
-    EXPECT_EQ(*result->error, "No voice transcription provider is configured");
-    EXPECT_EQ(result->text, "");
 }
 
 TEST(ApiClient, RequestSerializerPreservesToolUseInputJson) {

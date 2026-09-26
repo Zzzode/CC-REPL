@@ -66,9 +66,6 @@ target_sources(cc_services
         services/token/estimation.cppm
         services/tool_summary/tool_summary.cppm
         services/vcr/vcr.cppm
-        services/voice/voice.cppm
-        services/voice/voice_keyterms.cppm
-        services/voice/voice_stream_stt.cppm
         services/assistant/session_history.cppm
         services/output_styles/output_styles.cppm
         services/mcp/headers_helper.cppm
