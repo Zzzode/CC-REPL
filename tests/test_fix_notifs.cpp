@@ -1,8 +1,9 @@
 /// @file test_fix_notifs.cpp
-/// @brief Coverage for the real-backend bridges added to
+/// @brief Coverage for the MCP-connectivity bridge in
+///        cc.bootstrap.mcp_connectivity (to_hook_status / project_connectivity
+///        / wire_mcp_connectivity, the sole writer of the hook MCP slot since
+///        the B8 cut) and for the real-backend teammate bridge still living in
 ///        cc.hooks.remaining_notifs:
-///          * to_mcp_server_status() — ConnectionStatus -> McpServerStatus
-///          * inject_mcp_connectivity_from_manager() — live manager -> slot
 ///          * inject_teammate_shutdowns_from_tasks<>() — task list -> slot
 ///
 /// The teammate bridge is a template that takes the terminal-state test and
@@ -76,27 +77,21 @@ notif::TeammateShutdownCause to_cause(const FakeTask& t) {
 
 // ─── MCP status mapping ─────────────────────────────────────────────────────
 
-// RFC-0001 B7: the mapping cases assert BOTH the hook-local mapper (still
-// present this batch) and the new bootstrap bridge mapper yield identical
-// results. B8 deletes the hook-local copy, leaving the bridge assertions.
+// RFC-0001 B8: the hook-local mapper was deleted with the direct
+// hooks->services leg; cc.bootstrap.mcp_connectivity::to_hook_status is now
+// the only ConnectionStatus -> McpServerStatus mapping.
 
 TEST(FixNotifs, McpStatusMappingConnected) {
-    EXPECT_EQ(notif::to_mcp_server_status(svc_mcp::ConnectionStatus::Connected),
-              notif::McpServerStatus::Connected);
     EXPECT_EQ(bridge::to_hook_status(svc_mcp::ConnectionStatus::Connected),
               notif::McpServerStatus::Connected);
 }
 
 TEST(FixNotifs, McpStatusMappingConnecting) {
-    EXPECT_EQ(notif::to_mcp_server_status(svc_mcp::ConnectionStatus::Connecting),
-              notif::McpServerStatus::Connecting);
     EXPECT_EQ(bridge::to_hook_status(svc_mcp::ConnectionStatus::Connecting),
               notif::McpServerStatus::Connecting);
 }
 
 TEST(FixNotifs, McpStatusMappingDisconnected) {
-    EXPECT_EQ(notif::to_mcp_server_status(svc_mcp::ConnectionStatus::Disconnected),
-              notif::McpServerStatus::Disconnected);
     EXPECT_EQ(bridge::to_hook_status(svc_mcp::ConnectionStatus::Disconnected),
               notif::McpServerStatus::Disconnected);
 }
@@ -104,10 +99,6 @@ TEST(FixNotifs, McpStatusMappingDisconnected) {
 TEST(FixNotifs, McpStatusMappingErrorAndNeedsAuth) {
     // Both Error and NeedsAuth project onto the surfacing Error bucket so the
     // existing has_mcp_connectivity_issues() reader flags them.
-    EXPECT_EQ(notif::to_mcp_server_status(svc_mcp::ConnectionStatus::Error),
-              notif::McpServerStatus::Error);
-    EXPECT_EQ(notif::to_mcp_server_status(svc_mcp::ConnectionStatus::NeedsAuth),
-              notif::McpServerStatus::Error);
     EXPECT_EQ(bridge::to_hook_status(svc_mcp::ConnectionStatus::Error),
               notif::McpServerStatus::Error);
     EXPECT_EQ(bridge::to_hook_status(svc_mcp::ConnectionStatus::NeedsAuth),
@@ -163,9 +154,9 @@ TEST(FixNotifs, ProjectConnectivityMapsSnapshots) {
 // the manager iterates an empty mcp_config_.servers deterministically). The
 // sink must replace the pre-seeded sentinel slot content with {}.
 //
-// INTERIM B7: the old in-runtime projection publishes {} on the same read
-// too (identical double-publish); post-B8 this same test proves the sink is
-// the sole feed.
+// RFC-0001 B8 (DISCRIMINATING): the in-runtime direct projection is gone, so
+// if the sink did not fire the sentinel row would survive unchanged; its
+// replacement with {} proves the bridge sink alone refreshes the slot.
 TEST(FixNotifs, WireSinkRefreshesSlot) {
     NotifStateReset state_guard;
     BridgeWireGuard sink_guard;

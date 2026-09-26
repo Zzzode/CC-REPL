@@ -1,5 +1,5 @@
 /// @file mcp_connectivity.cppm
-/// @brief RFC-0001 B7 interim MCP-connectivity bridge.
+/// @brief RFC-0001 B7/B8 MCP-connectivity bridge.
 ///
 /// Consumes the B6 NativeMcpRuntime snapshot sink
 /// (cc::tools::set_mcp_snapshots_sink) and projects every emitted snapshot
@@ -7,13 +7,12 @@
 /// via set_raw_mcp_connectivity, so the current get_mcp_connectivity_status()
 /// / has_mcp_connectivity_issues() readers see the data unchanged.
 ///
-/// INTERIM DOUBLE-PUBLISH (B7): the old direct projection
-/// (inject_mcp_connectivity_from_manager, called inside
-/// NativeMcpRuntime::all_statuses) still runs. Both legs publish from the
-/// SAME snapshot vector and carry identical data by construction. B8 deletes
-/// the old hook/tools legs in one atomic commit and the sink installed here
-/// becomes the sole feed; nothing in this module is designed to outlive that
-/// cut except the slot setter it already shares.
+/// SOLE FEED (since the B8 atomic cut): the old direct projection
+/// (inject_mcp_connectivity_from_manager inside
+/// NativeMcpRuntime::all_statuses) and the hook-local mapper/services
+/// imports were deleted. The sink installed here is now the ONLY writer of
+/// the hook connectivity slot — the hook module itself is pure data/slot
+/// with zero cc.services imports.
 ///
 /// Single-sink design: one std::function installed exactly once at the
 /// composition root (main()). The hook gains no provider/refresh API —
@@ -39,10 +38,9 @@ import cc.tools.mcp;
 
 export namespace cc::bootstrap::mcp_connectivity {
 
-// Verbatim copy of the hook-local to_mcp_server_status() 5-arm switch
-// (src/hooks/notifs/remaining_notifs.cppm); B8 deletes the hook copy and
-// this becomes the only mapping. Kept character-for-character identical so
-// the interim double-publish cannot diverge.
+// The 5-arm ConnectionStatus -> McpServerStatus mapping. The hook-local
+// copy (to_mcp_server_status) was deleted with the B8 cut; this is the only
+// mapping.
 inline auto to_hook_status(cc::services::mcp::ConnectionStatus s)
     -> cc::hooks::notifs::McpServerStatus {
     using CS = cc::services::mcp::ConnectionStatus;
@@ -56,11 +54,9 @@ inline auto to_hook_status(cc::services::mcp::ConnectionStatus s)
     }
 }
 
-// Verbatim projection body from inject_mcp_connectivity_from_manager():
-// both ids copy snap.name, last_error is copied, and every row shares one
-// now-ms stamp. The clock is the hook module's OWN detail::now_ms() (already
-// exported and kept exported through B8), reused rather than replicated so
-// the two interim legs cannot read two different clocks.
+// Projection body: both ids copy snap.name, last_error is copied, and every
+// row shares one now-ms stamp. The clock is the hook module's OWN exported
+// detail::now_ms(), the same clock the deleted direct leg used to read.
 inline auto project_connectivity(
     std::vector<cc::services::mcp::McpServerSnapshot> snapshots
 ) -> std::vector<cc::hooks::notifs::McpConnectivityInfo> {

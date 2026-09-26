@@ -12,8 +12,11 @@
 ///   * filtering logic (deadline, current model, dismissal, recency, severity)
 ///
 /// Backend wiring status (mirrors TS src/hooks/notifs/*):
-///   * McpConnectivity      -> REAL: cc.services.mcp.connection_manager
-///                             (inject_mcp_connectivity_from_manager()).
+///   * McpConnectivity      -> SLOT, fed externally by the rank-13
+///                             cc.bootstrap.mcp_connectivity bridge over the
+///                             cc.tools MCP snapshot sink (the sole writer
+///                             since the B8 cut; this module has no services
+///                             dependency).
 ///                             TS: useMcpConnectivityStatus filters mcpClients
 ///                             by failed/needs-auth.
 ///   * TeammateShutdown     -> REAL: cc.tasks.in_process_teammate_task
@@ -55,8 +58,6 @@ export module cc.hooks.remaining_notifs;
 import std;
 
 import cc.utils.json;
-import cc.services.mcp.types;
-import cc.services.mcp.connection_manager;
 
 export namespace cc::hooks::notifs {
 
@@ -452,60 +453,6 @@ inline auto has_mcp_connectivity_issues() -> bool {
         return s.state == McpServerStatus::Disconnected ||
                s.state == McpServerStatus::Error;
     });
-}
-
-// --------------------------------------------------------------------------
-// Real-backend bridge: cc.services.mcp.connection_manager
-//
-// Mirrors TS useMcpConnectivityStatus (src/hooks/notifs/useMcpConnectivity
-// Status.tsx), which derives notifications from the live mcpClients list by
-// classifying each connection as failed / needs-auth / healthy. Here we read
-// McpServerSnapshot.status (ConnectionStatus) off the injected manager and
-// project it onto McpConnectivityInfo, then publish it into the slot so the
-// existing get_mcp_connectivity_status() / has_mcp_connectivity_issues()
-// readers and dismissal machinery see real data.
-//
-// Mapping (TS client.type -> C++ ConnectionStatus):
-//   failed        -> Error / Disconnected
-//   needs-auth    -> NeedsAuth
-//   connected     -> Connected
-//   (connecting)  -> Connecting
-// --------------------------------------------------------------------------
-
-inline auto to_mcp_server_status(::cc::services::mcp::ConnectionStatus s)
-    -> McpServerStatus {
-    using CS = ::cc::services::mcp::ConnectionStatus;
-    switch (s) {
-        case CS::Connected:    return McpServerStatus::Connected;
-        case CS::Connecting:   return McpServerStatus::Connecting;
-        case CS::NeedsAuth:    return McpServerStatus::Error;   // surfaced for auth nudge
-        case CS::Error:        return McpServerStatus::Error;
-        case CS::Disconnected:
-        default:               return McpServerStatus::Disconnected;
-    }
-}
-
-/// Pull live connectivity from a real McpConnectionManager and refresh the
-/// slot. Callers (the REPL wiring layer) own the manager instance; this keeps
-/// the hook unit-testable without a global singleton, mirroring how TS injects
-/// mcpClients via React props.
-inline void inject_mcp_connectivity_from_manager(
-    ::cc::services::mcp::McpConnectionManager& manager
-) {
-    auto snapshots = manager.snapshot_all_servers();
-    std::vector<McpConnectivityInfo> infos;
-    infos.reserve(snapshots.size());
-    const int64_t now = detail::now_ms();
-    for (const auto& snap : snapshots) {
-        McpConnectivityInfo info;
-        info.server_id    = snap.name;
-        info.display_name = snap.name;
-        info.state        = to_mcp_server_status(snap.status);
-        info.last_error   = snap.last_error;
-        info.last_seen_ms = now;
-        infos.push_back(std::move(info));
-    }
-    set_raw_mcp_connectivity(infos);
 }
 
 // ==========================================================================

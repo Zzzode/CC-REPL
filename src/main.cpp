@@ -1803,12 +1803,12 @@ int main(int argc, const char* argv[]) {
     // in-process server routes all run in this one binary).
     cc::commands::install_core_settings_mcp_loader();
 
-    // RFC-0001 B7: install the MCP-connectivity snapshot-sink bridge
+    // RFC-0001 B7/B8: install the MCP-connectivity snapshot-sink bridge
     // immediately after the B4 loader. Same domination argument — every
     // NativeMcpRuntime::all_statuses() path (runtime-tool fallback, daemon
     // modes, dynamic providers, in-process server routes) runs after this
-    // point in the one binary. INTERIM: the old in-runtime hook projection
-    // still runs too (identical double-publish) until the B8 atomic cut.
+    // point in the one binary. Since the B8 atomic cut this sink is the sole
+    // writer of the hook connectivity slot.
     cc::bootstrap::mcp_connectivity::wire_mcp_connectivity();
 
     // Resolve leader/teammate identity from the environment just exported by
