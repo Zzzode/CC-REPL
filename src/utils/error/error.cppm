@@ -180,3 +180,8 @@ template<typename T>
 concept ErrorLike = true;
 
 } // namespace cc::utils
+
+// sccache interface-invalidation pilot (DO NOT MERGE, removed after).
+export namespace cc::core {
+  [[nodiscard]] inline int sccache_pilot_marker_v1() noexcept { return 4242; }
+}
