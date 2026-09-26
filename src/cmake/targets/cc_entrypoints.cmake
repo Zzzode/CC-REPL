@@ -6,7 +6,6 @@ target_sources(cc_entrypoints
         entrypoints/control_types.cppm
         entrypoints/core_schemas.cppm
         entrypoints/core_types.cppm
-        entrypoints/mcp_entrypoint.cppm
         entrypoints/runtime_types.cppm
         entrypoints/sandbox_types.cppm
         entrypoints/sdk_types.cppm

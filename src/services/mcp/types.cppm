@@ -505,16 +505,4 @@ int find_available_port() {
     return static_cast<int>(port);
 }
 
-// Get logging-safe MCP base URL
-std::optional<std::string> get_logging_safe_mcp_base_url(const McpServerConfig& config) {
-    if (config.url.empty()) {
-        return std::nullopt;
-    }
-    try {
-        return config.url;
-    } catch (...) {
-        return std::nullopt;
-    }
-}
-
 } // namespace cc::services::mcp

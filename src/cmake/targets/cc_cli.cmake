@@ -4,7 +4,6 @@ target_sources(cc_cli
     PUBLIC FILE_SET CXX_MODULES FILES
         cli/ccr_client.cppm
         cli/handlers/agents.cppm
-        cli/handlers/mcp_handler.cppm
         cli/handlers/plugins_handler.cppm
         cli/sse_transport.cppm
         cli/transports.cppm

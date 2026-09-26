@@ -51,7 +51,6 @@ target_sources(cc_commands
         commands/install.cppm
         commands/issue.cppm
         commands/keybindings_cmd.cppm
-        commands/mcp/add_command.cppm
         commands/mcp_cmd.cppm
         commands/memory.cppm
         commands/mobile.cppm

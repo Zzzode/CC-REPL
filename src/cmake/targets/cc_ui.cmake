@@ -182,7 +182,6 @@ target_sources(cc_ui
         ui/features/mcp/mcp_server_details.cppm
         ui/features/mcp/mcp_server_list.cppm
         ui/features/mcp/mcp_elicitation.cppm
-        ui/features/mcp/mcp_settings_panel.cppm
         ui/chrome/ink_utils.cppm
         ui/chrome/renderer.cppm
         ui/chrome/text_measure.cppm
