@@ -9,6 +9,13 @@ export module cc.services.mcp.types;
 
 import std;
 
+// Re-export (not plain import): the cc::core::X RHS of the using-aliases below
+// is a one-'::'-segment qualified name that graph_check's dead-import parser
+// cannot attribute; the re-export is both exempt from that check and propagates
+// the complete types to auth/connection_manager/config, which import this
+// primary rather than the leaf directly.
+export import cc.config.mcp_types;
+
 import cc.utils.error;
 import cc.utils.json;
 
@@ -445,19 +452,11 @@ inline std::optional<ToolCallResult> parse_tool_call_result(const std::string& j
 // Server configuration types
 // =========================================================================
 
-struct McpOAuthConfig {
-    std::optional<std::string> auth_server_metadata_url = std::nullopt;
-    std::optional<int> callback_port = std::nullopt;
-    std::optional<std::string> client_id = std::nullopt;
-    bool xaa = false;
-};
-
-struct McpServerConfig {
-    std::string type; // "stdio", "sse", "http"
-    std::string url;
-    std::unordered_map<std::string, std::string> headers = {};
-    std::optional<McpOAuthConfig> oauth = std::nullopt;
-};
+// Services MCP config is the canonical cc::core model (RFC-0001 B3). The
+// aliases preserve the cc::services::mcp:: spelling for existing consumers;
+// field semantics follow cc::core (transport / optional url / 11 fields).
+using McpOAuthConfig = cc::core::McpOAuthConfig;
+using McpServerConfig = cc::core::McpServerConfig;
 
 // Common types for MCP protocol (legacy aliases)
 struct Tool {

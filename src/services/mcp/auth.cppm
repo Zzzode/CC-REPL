@@ -497,8 +497,11 @@ std::string get_server_key(const std::string& server_name,
                            const McpServerConfig& server_config) {
     JsonMutDoc doc;
     auto obj = doc.object();
-    obj.add("type", doc.string(server_config.type));
-    obj.add("url", doc.string(server_config.url));
+    // The JSON keys ("type"/"url") are the persisted OAuth token-file key
+    // format and stay literal even though the C++ field is now `transport`
+    // and `url` is optional (RFC-0001 B3).
+    obj.add("type", doc.string(server_config.transport));
+    obj.add("url", doc.string(server_config.url.value_or(std::string{})));
 
     auto headers_obj = doc.object();
     for (const auto& [key, value] : server_config.headers) {
@@ -618,7 +621,7 @@ Result<McpOAuthTokenData> refresh_server_tokens_from_local_storage(
     auto refreshed = detail::refresh_oauth_token(*metadata, *token, client_id);
     if (!refreshed) return std::unexpected(refreshed.error());
     refreshed->server_name = server_name;
-    refreshed->server_url = server_config.url;
+    refreshed->server_url = server_config.url.value_or(std::string{});
     refreshed->discovery_state.resource_metadata_url =
         server_config.oauth ? server_config.oauth->auth_server_metadata_url : std::nullopt;
     if (auto stored = detail::store_token_data(get_server_key(server_name, server_config), *refreshed); !stored) {
@@ -790,7 +793,7 @@ Result<void> perform_mcp_oauth_flow(
         //   exchangeJwtAuthGrant (ID-JAG→access_token)
         auto xaa_result = authenticate_xaa(
             *xaa_config,
-            server_config.url,
+            server_config.url.value_or(std::string{}),
             on_authorization_url,
             skip_browser_open);
         if (!xaa_result) {
@@ -801,7 +804,7 @@ Result<void> perform_mcp_oauth_flow(
 
         McpOAuthTokenData token;
         token.server_name = server_name;
-        token.server_url = server_config.url;
+        token.server_url = server_config.url.value_or(std::string{});
         token.access_token = xaa_result->access_token;
         token.refresh_token = xaa_result->refresh_token.value_or("");
         token.expires_at = detail::current_epoch_seconds()
@@ -845,7 +848,7 @@ Result<void> perform_mcp_oauth_flow(
         // Fetch metadata
         auto metadata_result = fetch_auth_server_metadata(
             server_name,
-            server_config.url,
+            server_config.url.value_or(std::string{}),
             server_config.oauth ? server_config.oauth->auth_server_metadata_url : std::nullopt
         );
         if (!metadata_result) {
@@ -911,7 +914,7 @@ Result<void> perform_mcp_oauth_flow(
         if (!token) return std::unexpected(token.error());
 
         token->server_name = server_name;
-        token->server_url = server_config.url;
+        token->server_url = server_config.url.value_or(std::string{});
         token->discovery_state.authorization_server_url = (**metadata_result).authorization_endpoint;
         token->discovery_state.resource_metadata_url =
             server_config.oauth ? server_config.oauth->auth_server_metadata_url : std::nullopt;

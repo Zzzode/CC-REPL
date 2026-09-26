@@ -243,18 +243,6 @@ struct NativeMcpServerStatus {
     }
 }
 
-[[nodiscard]] inline std::optional<svc_mcp::McpOAuthConfig> convert_core_oauth(
-    const std::optional<cc::core::McpOAuthConfig>& oauth
-) {
-    if (!oauth) return std::nullopt;
-    return svc_mcp::McpOAuthConfig{
-        .auth_server_metadata_url = oauth->auth_server_metadata_url,
-        .callback_port = oauth->callback_port,
-        .client_id = oauth->client_id,
-        .xaa = oauth->xaa,
-    };
-}
-
 [[nodiscard]] inline NativeMcpConfiguredServer to_native_mcp_server(
     const cc::core::McpServerConfig& server
 ) {
@@ -270,7 +258,10 @@ struct NativeMcpServerStatus {
     native.url = server.url.value_or(std::string{});
     native.headers = server.headers;
     native.headers_helper = server.headers_helper.value_or(std::string{});
-    native.oauth = convert_core_oauth(server.oauth);
+    // RFC-0001 B3: svc_mcp::McpOAuthConfig is now an alias of the canonical
+    // cc::core type, so the optional is the same type — direct assignment
+    // (issuer now propagates instead of being dropped by a field-wise copy).
+    native.oauth = server.oauth;
     return native;
 }
 
@@ -294,7 +285,7 @@ struct NativeMcpServerStatus {
     const NativeMcpConfiguredServer& server
 ) {
     svc_mcp::McpServerConfig config;
-    config.type = transport_to_auth_type(server.transport);
+    config.transport = transport_to_auth_type(server.transport);
     config.url = server.url;
     config.headers = server.headers;
     config.oauth = server.oauth;

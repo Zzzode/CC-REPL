@@ -454,15 +454,15 @@ private:
             McpServerConfig auth_config;
             switch (server_config.transport) {
                 case TransportType::Sse:
-                    auth_config.type = "sse";
+                    auth_config.transport = "sse";
                     break;
                 case TransportType::Http:
                 case TransportType::StreamableHttp:
-                    auth_config.type = "http";
+                    auth_config.transport = "http";
                     break;
                 case TransportType::Stdio:
                 default:
-                    auth_config.type = "stdio";
+                    auth_config.transport = "stdio";
                     break;
             }
             auth_config.url = server_config.url;

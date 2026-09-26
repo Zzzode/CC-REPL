@@ -1107,7 +1107,11 @@ TEST(McpAuth, XaaFlowDoesNotReturnUnimplementedError) {
     unsetenv("LOOM_ENABLE_XAA");
 
     cc::services::mcp::McpServerConfig server_config{
-        .type = "http",
+        .name = "test-server",
+        .command = {},
+        .args = {},
+        .env = {},
+        .transport = "http",
         .url = "https://mcp.example.com/mcp",
         .headers = {},
         .oauth = cc::services::mcp::McpOAuthConfig{

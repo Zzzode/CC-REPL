@@ -95,6 +95,7 @@ target_link_libraries(cc_services
         cc_utils
         cc_types
         cc_constants
+        cc_config
         CURL::libcurl
         yyjson
         uv_a

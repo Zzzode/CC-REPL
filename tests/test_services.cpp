@@ -4584,7 +4584,7 @@ TEST(McpConnectionManager, RefreshesExpiredOAuthTokenBeforeRemoteConnection) {
     };
 
     cc::services::mcp::McpServerConfig auth_config;
-    auth_config.type = "http";
+    auth_config.transport = "http";
     auth_config.url = server_config.url;
     auth_config.oauth = server_config.oauth;
     const auto server_key = cc::services::mcp::get_server_key(server_config.name, auth_config);
@@ -4675,7 +4675,7 @@ TEST(McpConnectionManager, MarksRefreshFailureAsNeedsAuthWithoutRemoteConnect) {
     };
 
     cc::services::mcp::McpServerConfig auth_config;
-    auth_config.type = "http";
+    auth_config.transport = "http";
     auth_config.url = server_config.url;
     auth_config.oauth = server_config.oauth;
     const auto server_key = cc::services::mcp::get_server_key(server_config.name, auth_config);
@@ -4762,7 +4762,7 @@ TEST(McpConnectionManager, MarksDiscoveryServerWithoutTokenAsNeedsAuthThenReconn
     };
 
     cc::services::mcp::McpServerConfig auth_config;
-    auth_config.type = "http";
+    auth_config.transport = "http";
     auth_config.url = server_config.url;
     auth_config.oauth = server_config.oauth;
     const auto server_key = cc::services::mcp::get_server_key(server_config.name, auth_config);
@@ -4847,7 +4847,7 @@ TEST(McpAuth, RevokesOAuthTokensViaMetadataEndpointAndClearsLocalStorage) {
     EnvironmentGuard xdg_config_guard("XDG_CONFIG_HOME", root.string());
 
     cc::services::mcp::McpServerConfig auth_config;
-    auth_config.type = "http";
+    auth_config.transport = "http";
     auth_config.url = "https://mcp.example.test/mcp";
     auth_config.oauth = cc::services::mcp::McpOAuthConfig{
         .auth_server_metadata_url = server.metadata_url(),
@@ -4878,7 +4878,7 @@ TEST(McpAuth, RevokesOAuthTokensViaMetadataEndpointAndClearsLocalStorage) {
           "client_id": "client-1",
           "client_secret": "secret-1",
           "discovery_state": {{}}
-        }})", auth_config.url, expires_at);
+        }})", *auth_config.url, expires_at);
     }
 
     auto revoked = cc::services::mcp::revoke_server_tokens("revoke-fixture", auth_config);
@@ -4914,7 +4914,7 @@ TEST(McpAuth, CompletesOAuthBrowserCallbackFlowAndStoresTokens) {
     EnvironmentGuard xdg_config_guard("XDG_CONFIG_HOME", root.string());
 
     cc::services::mcp::McpServerConfig auth_config;
-    auth_config.type = "http";
+    auth_config.transport = "http";
     auth_config.url = "https://mcp.example.test/mcp";
     auth_config.oauth = cc::services::mcp::McpOAuthConfig{
         .auth_server_metadata_url = server.metadata_url(),
@@ -4999,7 +4999,7 @@ TEST(McpAuth, CompletesOAuthBrowserCallbackFlowAndStoresTokens) {
     auto persisted = cc::utils::json::parse_file(token_path);
     ASSERT_TRUE(persisted.has_value());
     EXPECT_EQ(persisted->root().get_string("server_name"), "callback-fixture");
-    EXPECT_EQ(persisted->root().get_string("server_url"), auth_config.url);
+    EXPECT_EQ(persisted->root().get_string("server_url"), *auth_config.url);
     EXPECT_EQ(persisted->root().get_string("access_token"), "callback-access");
     EXPECT_EQ(persisted->root().get_string("refresh_token"), "callback-refresh");
     EXPECT_EQ(persisted->root().get_string("scope"), "tools");
@@ -5032,7 +5032,7 @@ TEST(McpAuth, PerformsXaaIdpLoginAndStoresTokens) {
     }
 
     cc::services::mcp::McpServerConfig auth_config;
-    auth_config.type = "http";
+    auth_config.transport = "http";
     // Point to mock server so PRM discovery succeeds
     auth_config.url = server.base_url() + "/mcp";
     auth_config.oauth = cc::services::mcp::McpOAuthConfig{
@@ -5091,7 +5091,7 @@ TEST(McpAuth, PerformsXaaIdpLoginAndStoresTokens) {
     auto persisted = cc::utils::json::parse_file(token_path);
     ASSERT_TRUE(persisted.has_value());
     EXPECT_EQ(persisted->root().get_string("server_name"), "xaa-fixture");
-    EXPECT_EQ(persisted->root().get_string("server_url"), auth_config.url);
+    EXPECT_EQ(persisted->root().get_string("server_url"), *auth_config.url);
     EXPECT_EQ(persisted->root().get_string("access_token"), "xaa-access");
     EXPECT_EQ(persisted->root().get_string("refresh_token"), "xaa-refresh");
     EXPECT_EQ(persisted->root().get_string("scope"), "openid profile mcp");
@@ -5110,7 +5110,7 @@ TEST(McpAuth, XaaEnabledServerRequiresConfiguredIdpConnection) {
     EnvironmentGuard xaa_enabled_guard("LOOM_ENABLE_XAA", "1");
 
     cc::services::mcp::McpServerConfig auth_config;
-    auth_config.type = "http";
+    auth_config.transport = "http";
     auth_config.url = "https://mcp.example.test/mcp";
     auth_config.oauth = cc::services::mcp::McpOAuthConfig{
         .client_id = "as-client-1",
