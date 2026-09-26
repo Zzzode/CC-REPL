@@ -20,7 +20,6 @@ import std;
 
 import cc.skills.skill;
 import cc.skills.load_skills_dir;
-import cc.tools.tool;
 
 export namespace cc::skills::bundled {
 
